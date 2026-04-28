@@ -271,35 +271,18 @@ def cloudlab_remote(
     coverage=7,
 
 
-    allow_cross_step_weak_edges=True,  # 跨solid-step的weak edges
+    allow_cross_step_weak_edges=True,
 
-# 提交规则：
-#     对同一个 r1 leader，有 3 次机会：
-# 1. Fast coin 提前机会
-#    - 触发时机：收到第一个 r3 顶点
-#    - 检查对象：r2 -> r1
-#    - 额外前提：已经看到足够的候选顶点
-# 2. Solid-step 提前机会
-#    - 触发时机：收到第一个 r4 顶点
-#    - 检查对象：r3 -> r1
-#    - 额外前提：已经看到足够的候选顶点
-# 3. 默认 regular 路径
-#    - 触发时机：收到第一个 r5 顶点
-#    - 检查对象：r3 -> r1
-#    - 只要前面没提交成功，就还要走这一步
-
-    enable_fast_coin=True, # fast-coin commit 第二轮结束提交
-    solid_commit_trigger_on_solid_step=True, # r3 commit 第三轮结束提交，在收到第一个第四轮证书后 + solid_candidate_threshold 达到预期
-    enable_commit_recheck=True, # r2 commit  fast_coin_candidate_threshold 达到预期
+    enable_fast_coin=True,
+    solid_commit_trigger_on_solid_step=True,
+    enable_commit_recheck=True,
     fast_coin_candidate_threshold=4,
     solid_candidate_threshold=4,
 
-    # 这是payload 的调度，第三轮和第二轮的顶点接收payload，目前以第三轮顶点优先，多余的给第二轮
     enable_adaptive_intermediate_spill=True, # payload shceduling
     adaptive_intermediate_spill_trigger_digests=2,
     adaptive_intermediate_spill_cap_digests=1,
 
-    #会根据这些tag会自动生成目录，将运行结果分类 目录是 design_tag/network_tag/load_tag/
     design_tag='manta_data_forpaper3',
     network_tag='geo',
     load_tag='balanced_100_50',
@@ -325,8 +308,6 @@ def cloudlab_remote(
         'runs': 2,       
     }
 
-    # manta 对以下参数比较敏感 可调整成 50/500_000/50   100/500_000/100  50/128_000/50 80/128_000/35 等等
-    # 下面这组在geo631表现还可以, 有时候跑的不稳，900左右是正常，如果超过1000了可能是波动或者这个参数没有调优
     #  'max_header_delay': 80,  # ms
     #  'batch_size': 500_000,  # bytes
     # 'max_batch_delay': 35,  # ms

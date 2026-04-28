@@ -100,7 +100,7 @@ def main() -> None:
         fig.savefig(out, dpi=200, bbox_inches="tight", facecolor="white")
         plt.close(fig)
 
-    print(f"已写入 {out}（{len(rows)} 次运行，不含 old/）")
+    print(f"have saved {out} ({len(rows)} runs, excluding old/)")
 
 
 if __name__ == "__main__":

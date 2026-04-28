@@ -386,7 +386,7 @@ def _leader_badge(event: Dict[str, Any]) -> str:
     if not event:
         return ""
     return (
-        f'<span class="badge badge-leader">leader 轮 r{event["leader_round"]}，节点 {event["leader_node"]}</span>'
+        f'<span class="badge badge-leader">leader round r{event["leader_round"]}, node {event["leader_node"]}</span>'
     )
 
 
@@ -408,10 +408,10 @@ def _support_badges(events: List[Dict[str, Any]]) -> str:
     badges = []
     for event in events:
         css = "badge-ok" if event["final_result"] == "committed" else "badge-warn"
-        result_text = "已提交" if event["final_result"] == "committed" else event["final_result"]
+        result_text = "committed" if event["final_result"] == "committed" else event["final_result"]
         badges.append(
-            f'<span class="badge {css}">{html.escape(_path_label(event["path"]))} 检查 r{event["leader_round"]}，support 轮 r{event["support_round"]}，触发轮 r{event.get("trigger_round", event["support_round"])}: '
-            f'{html.escape(result_text)}，basis={html.escape(_support_basis_label(event["support_basis"]))}</span>'
+            f'<span class="badge {css}">{html.escape(_path_label(event["path"]))} check r{event["leader_round"]}, support round r{event["support_round"]}, trigger round r{event.get("trigger_round", event["support_round"])}: '
+            f'{html.escape(result_text)}, basis={html.escape(_support_basis_label(event["support_basis"]))}</span>'
         )
     return "".join(badges)
 
@@ -444,7 +444,7 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
     for row_index, node_id in enumerate(node_ids):
         y = top_margin + row_index * node_spacing
         row_labels.append(
-            f'<text x="24" y="{y + 5}" class="row-label">节点 {node_id}</text>'
+            f'<text x="24" y="{y + 5}" class="row-label">node {node_id}</text>'
         )
 
     for column_index, round_item in enumerate(rounds):
@@ -456,11 +456,11 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
         header_lines = [f'<text x="{x}" y="28" class="round-label">r{round_num}</text>']
         if leader_event:
             header_lines.append(
-                f'<text x="{x}" y="48" class="round-sub leader-sub">leader 节点 {leader_event["leader_node"]}</text>'
+                f'<text x="{x}" y="48" class="round-sub leader-sub">leader node {leader_event["leader_node"]}</text>'
             )
         if support_events:
             summary_parts = [
-                f'{_path_label(event["path"])}:r{event["leader_round"]}/s{event["support_round"]}->{("已提交" if event["final_result"] == "committed" else event["final_result"])}'
+                f'{_path_label(event["path"])}:r{event["leader_round"]}/s{event["support_round"]}->{("committed" if event["final_result"] == "committed" else event["final_result"])}'
                 for event in support_events
             ]
             header_lines.append(
@@ -501,9 +501,9 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
                 for parent in vertex["parents"]
             ) or "-"
             tooltip = (
-                f"r{round_num} 节点 {vertex_id} | "
-                f"强边={vertex['strong_parent_count']} 弱边={vertex['weak_parent_count']} | "
-                f"父边={parent_text}"
+                f"r{round_num} node {vertex_id} | "
+                f"strong edge={vertex['strong_parent_count']} weak edge={vertex['weak_parent_count']} | "
+                f"parent edge={parent_text}"
             )
 
             node_groups.append(
@@ -537,16 +537,16 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
         badges = _leader_badge(round_item.get("leader_event")) + _support_badges(
             round_item.get("support_events", [])
         )
-        badge_html = badges or '<span class="badge">无特殊事件</span>'
+        badge_html = badges or '<span class="badge">no special events</span>'
         committed_nodes = round_item.get("committed_nodes", [])
         commit_text = (
-            f"已提交节点: {', '.join(str(node) for node in committed_nodes)}"
+            f"committed nodes: {', '.join(str(node) for node in committed_nodes)}"
             if committed_nodes
-            else "已提交节点: -"
+            else "committed nodes: -"
         )
         round_cards.append(
             '<section class="round-card">'
-            f'<h3>{html.escape(title.replace("Round", "第"))} 轮</h3>'
+            f'<h3>{html.escape(title.replace("Round", "round"))}</h3>'
             f'<div class="badges">{badge_html}</div>'
             f'<p>{html.escape(commit_text)}</p>'
             "</section>"
@@ -556,7 +556,7 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>DAG 总览</title>
+  <title>DAG Overview</title>
   <style>
     :root {{
       --bg: #f7f8fb;
@@ -754,22 +754,22 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
 <body>
   <main>
     <section class="panel">
-      <h1>带提交标注的 DAG 总览</h1>
-      <p>当前语义：regular 路径在下一轮首个顶点到达时激活检查；之后只要 support round 有晚到证书，就对同一组 leader/support 重新检查，直到成功提交或进入下一次检查窗口。若启用 fast coin，则同一 leader 还会多出一条更早启动的检查路径：在下一轮首个顶点到达时，对前一轮 support round 发起检查；其支持依据优先看 solid-step 摘要，缺失时再退回 parent path。</p>
-      <p>来源日志: {html.escape(summary.get("selected_log") or "-")}</p>
-      <p>图中仅展示前 {rendered_round_count} 轮；上方统计指标仍基于全量 DAG 轮次与提交事件计算。</p>
+      <h1>DAG Overview with Commit Markers</h1>
+      <p>Current semantics: regular path activates check when the first vertex of the next round arrives; after that, as long as there is a late certificate in the support round, the same leader/support group is checked again until successful commit or entering the next check window. If fast coin is enabled, the same leader will have an additional check path that starts earlier: when the first vertex of the next round arrives, check the previous support round; its support basis is prioritized to see the solid-step summary, and if missing, it falls back to the parent path.</p>
+      <p>source log: {html.escape(summary.get("selected_log") or "-")}</p>
+      <p>Only the first {rendered_round_count} rounds are shown in the graph; the above statistics are still based on the full DAG rounds and commit events.</p>
       <div class="metrics">
-        <div class="metric"><div class="label">Leader 轮数</div><div class="value">{summary["leader_rounds"]}</div></div>
-        <div class="metric"><div class="label">成功提交的 Leader</div><div class="value">{summary["committed_leader_rounds"]}</div></div>
-        <div class="metric"><div class="label">Leader 提交成功率</div><div class="value">{success_pct:.1f}%</div></div>
-        <div class="metric"><div class="label">平均检查次数</div><div class="value">{summary["avg_attempts_per_leader"]:.2f}</div></div>
-        <div class="metric"><div class="label">平均 Support 间隔</div><div class="value">{summary["avg_support_gap"]:.2f}</div></div>
+        <div class="metric"><div class="label">Leader Rounds</div><div class="value">{summary["leader_rounds"]}</div></div>
+        <div class="metric"><div class="label">Committed Leaders</div><div class="value">{summary["committed_leader_rounds"]}</div></div>
+        <div class="metric"><div class="label">Leader Commit Success Rate</div><div class="value">{success_pct:.1f}%</div></div>
+        <div class="metric"><div class="label">Average Check Attempts</div><div class="value">{summary["avg_attempts_per_leader"]:.2f}</div></div>
+        <div class="metric"><div class="label">Average Support Gap</div><div class="value">{summary["avg_support_gap"]:.2f}</div></div>
       </div>
       <div class="legend" style="margin-top:14px;">
-        <span class="badge badge-leader">金色节点 = 该 leader round 选中的 leader</span>
-        <span class="badge badge-ok">绿色列 = 本轮触发过检查；regular 路径由下一轮首个顶点启动，fast coin 路径也由下一轮首个顶点启动，但优先使用更早的 solid-step / parent-path 支持依据；之后都可被晚到的 support round 证书再次触发并最终成功提交</span>
-        <span class="badge">绿色描边 = 出现在 DAG_COMMITTED 中的顶点</span>
-        <span class="badge">蓝色虚线 = weak parent 边</span>
+        <span class="badge badge-leader">golden node = the leader selected in the leader round</span>
+        <span class="badge badge-ok">green column = the round has triggered check; the regular path starts with the first vertex of the next round, and the fast coin path also starts with the first vertex of the next round, but prioritizes using earlier solid-step / parent-path support basis; afterwards, it can be triggered again by the late support round certificate and finally successfully committed</span>
+        <span class="badge">green border = the vertices appearing in DAG_COMMITTED</span>
+        <span class="badge">blue dashed line = weak parent edge</span>
       </div>
     </section>
     <section class="panel svg-shell">
@@ -781,7 +781,7 @@ def export_dag_overview_html(snapshot: Dict[str, Any], output_file: str) -> Opti
       </svg>
     </section>
     <section class="panel">
-      <h2>各轮事件</h2>
+      <h2>Round Events</h2>
       <div class="round-grid">
         {''.join(round_cards)}
       </div>
