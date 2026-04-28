@@ -13,6 +13,8 @@ In this repo, the folder is as follow
 - readme.md
 - tusk (include the codebase of **Tusk and DAG-rider**)
 - manta (include the codebase of **Manta**)
+    - manta_full: The full version of Manta
+    - manta_scalable: More details can be seen in README.md under this folder
 - mahi-mahi (include the codebase of **Mahi-Mahi**)
 - chitu (include the codebase of **Chitu**)
 
