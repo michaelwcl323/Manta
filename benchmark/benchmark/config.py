@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 from json import dump, load
 from collections import OrderedDict
 
