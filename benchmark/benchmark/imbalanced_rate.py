@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 # This file is used to generate a list of rate with zipf
 
 # Zipf distribution constant

@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 import ipaddress
 from collections import OrderedDict
 from json import load, JSONDecodeError

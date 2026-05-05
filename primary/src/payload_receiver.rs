@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use config::WorkerId;
 use crypto::Digest;
 use store::Store;

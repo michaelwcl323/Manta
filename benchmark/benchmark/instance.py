@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from collections import defaultdict, OrderedDict
