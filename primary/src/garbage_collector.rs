@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::Certificate;
 use crate::primary::PrimaryWorkerMessage;
 use bytes::Bytes;

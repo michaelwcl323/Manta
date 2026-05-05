@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::Header;
 use crate::primary::{PrimaryMessage, PrimaryWorkerMessage, Round};

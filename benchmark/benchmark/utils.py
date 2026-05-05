@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 import csv
 import json
 import os

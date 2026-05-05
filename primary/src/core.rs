@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::aggregators::{CertificatesAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
 use crate::messages::{author_bitmap_stake, merge_author_bitmaps, set_author_bit, Certificate, Header, ProposalParents, Vote};

@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 from collections import OrderedDict
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
