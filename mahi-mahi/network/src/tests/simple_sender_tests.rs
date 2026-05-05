@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use crate::common::listener;
 use futures::future::try_join_all;

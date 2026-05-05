@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::aggregators::HeadersAggregator;
 use crate::error::{DagError, DagResult};
 use crate::messages::{Header, ProposalParents};

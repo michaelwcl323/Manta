@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab LAN — static routes so nodes on different subnets (e.g. 10.1.x vs 10.2.x)
 can reach each other via your experiment router.

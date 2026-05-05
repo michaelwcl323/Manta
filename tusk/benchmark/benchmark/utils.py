@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 from datetime import datetime
 from os import makedirs
 from os.path import join

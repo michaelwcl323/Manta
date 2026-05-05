@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 from datetime import datetime
 from glob import glob
 from multiprocessing import Pool

@@ -1,7 +1,6 @@
 [package]
 name = "crypto"
 version = "0.1.0"
-authors = ["Alberto Sonnino <alberto@sonnino.com>"]
 edition = "2018"
 publish = false
 

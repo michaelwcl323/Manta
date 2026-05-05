@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use config::Committee;
 use crypto::{Digest, PublicKey};
 use log::{debug, info, warn};

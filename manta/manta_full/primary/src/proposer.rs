@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{merge_author_bitmaps, Certificate, Header, ProposalParents};
 use crate::primary::Round;
 use config::{Committee, WorkerId};

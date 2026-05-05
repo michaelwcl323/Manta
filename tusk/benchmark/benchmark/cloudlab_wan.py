@@ -1,4 +1,3 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab WAN — symmetric RTT emulation between logical sites using tc netem.
 

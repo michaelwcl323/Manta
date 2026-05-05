@@ -34,7 +34,22 @@ All protocols can be run after the following procedures.
 
 1. Install Rust, tmux, and Python packages
    
-   Open any protocol folders, run the shell `script/remote_control/environment_setup.sh`
+   Open any protocol folders, run the shell 
+```shell
+sudo apt-get update
+sudo apt-get install tmux
+
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+sudo apt-get install libclang-dev
+
+sudo apt-get update
+sudo apt-get install iproute2
+
+sudo apt-get install python3-pip
+
+cd benchmark && pip install -r requirements.txt
+
+```
 
 2. Install Fabric
 
