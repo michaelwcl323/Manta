@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::DagResult;
 use crate::messages::{Header, ProposalParents};
 use crate::primary::Round;

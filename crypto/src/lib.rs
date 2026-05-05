@@ -1,4 +1,3 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
 use ed25519_dalek as dalek;
 use ed25519_dalek::ed25519;
 use ed25519_dalek::Signer as _;
