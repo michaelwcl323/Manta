@@ -1,0 +1,27 @@
+repository: https://github.com/michaelwcl323/manta-nsdi27.git
+
+implementations:
+  manta:
+    branch: manta
+    commit: <FINAL_MANTA_COMMIT>
+    description: Complete Manta implementation
+
+  manta-scalable:
+    branch: manta-scalable-version
+    commit: <FINAL_SCALABLE_COMMIT>
+    description: Manta implementation used for 50-node experiments
+
+  tusk:
+    branch: tusk
+    commit: <FINAL_TUSK_COMMIT>
+    description: Tusk and DAG-Rider baseline
+
+  mahi-mahi:
+    branch: mahi-mahi
+    commit: <FINAL_MAHI_COMMIT>
+    description: Mahi-Mahi baseline
+
+  chitu:
+    branch: chitu
+    commit: <FINAL_CHITU_COMMIT>
+    description: Chitu baseline
