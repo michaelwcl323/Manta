@@ -78,25 +78,41 @@ If you want to see the logs of functional tests, please find them in the folder 
 
 ### 3.1 Common Experimental Setup
 
-In this part, we introduce the setup procedure in Cloudlab and AWS platform.
-AWS platform is used for large-scale experiment because the nodes we use in experiments are not enough.
+This section describes the common setup procedures for the CloudLab and AWS experimental platforms.
+
+We use CloudLab for experiments with 10 replicas. The CloudLab experiments use C6220 machines running Ubuntu 22.04.2 LTS. Because a sufficient number of C6220 nodes may not be simultaneously available, the large-scale
+experiment with 50 replicas is conducted on AWS.
+
+The following instructions describe the CloudLab setup. The AWS setup is described separately in Section 3.2.
 
 #### 3.1.1 CloudLab Profile and Hardware
 
-**Step 1**: Install CloudLab Python tools `geni-lib` (already installed if you use `script/environment_setup`).
+The CloudLab profile provisions 10 C6220 nodes connected through a dedicated experimental LAN. Each physical node runs one replica and one co-located benchmark client.
 
-**Step 2**: Download your credential, which is a `.pem` file.
+> **Note:** The 10-node CloudLab configuration is used for reproducing Figures 9, 10, 11(a), 11(c), and 12. The 50-node experiment in Figure 11(b) is reproduced on AWS.
 
-**Step 3**: Modify the content in `cloudlab_settings.json`
+**Step 1: Download the CloudLab credential**
 
-**Step 4**: Run the command to create the profile.
+Log in to the CloudLab portal and download your user credential, which is a `.pem` file.
+
+**Step 2: Configure CloudLab settings**
+
+Edit `cloudlab_settings.json` and enter your CloudLab account, project, credential, and experiment information.
+
+**Step 3: Create the CloudLab profile.**
+
+Run:
 ```bash
 python cloudlab/create_profile.py
 ```
 
+This command creates or updates the CloudLab profile. It does not allocate or start physical nodes.
+
+The profile creation command only needs to be executed once unless profile.py or the hardware configuration is changed.
+
 #### 3.1.2 Instantiate the Experiment
 
-Run the following command.
+Start a CloudLab experiment from the previously created profile:
 ```bash
 python cloudlab/start_experiment.py
 ```
