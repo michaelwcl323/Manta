@@ -1,21 +1,28 @@
 {
     "experiment": {
-        "name": "manta-ae",
+        "name": "manta-ae3",
         "nodes": 11,
         "node_type": "r320",
         "aggregate": "apt.emulab.net",
         "disk_image": "urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU22-64-STD"
     },
-    "credential": {
-        "cert": "cloudlab.pem",
+    "portal": {
+        "url": "https://boss.emulab.net:43794",
+        "token": "cloudlab.jwt",
         "project": "LeaderBased",
-        "ask_passphrase": true
+        "profile_name": "manta-ae-profile",
+        "profile_project": "LeaderBased",
+        "profile_script": "cloudlab/profile.py",
+        "profile_public": false,
+        "profile_project_writable": true,
+        "duration_hours": 16,
+        "experiment_id": "build/portal-experiment-id",
+        "experiment_json": "build/portal-experiment.json"
     },
     "key": {
-        "path": "/users/michael9/.ssh/cloudlab_michael9",
+        "private": "~/.ssh/cloudlab_michael9",
         "pubkey": "~/.ssh/cloudlab_michael9.pub"
     },
-    "ssh_key_password": "michael",
     "port": 5000,
     "repo": {
         "name": "manta-nsdi27",

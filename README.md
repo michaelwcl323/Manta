@@ -78,52 +78,81 @@ If you want to see the logs of functional tests, please find them in the folder 
 
 ### 3.1 Common Experimental Setup
 
-This section describes the common setup procedures for the CloudLab and AWS experimental platforms.
+This section describes the common setup procedures for the CloudLab/APT and AWS experimental platforms.
 
-We use CloudLab for experiments with 10 replicas. The CloudLab experiments use C6220 machines running Ubuntu 22.04.2 LTS. Because a sufficient number of C6220 nodes may not be simultaneously available, the large-scale
-experiment with 50 replicas is conducted on AWS.
+The CloudLab/APT workflow is fully automated through the official Portal API. The scripts create a geni-lib portal profile, instantiate an experiment from that profile, download the manifest, and wait for node initialization. No manual portal clicks are required after the Portal API token is downloaded.
 
-The following instructions describe the CloudLab setup. The AWS setup is described separately in Section 3.2.
+The hardware, node count, image, repository, branch, and token paths are configured in `cloudlab_settings.json`.
 
-#### 3.1.1 CloudLab Profile and Hardware
+> **Note:** The 10-node CloudLab/APT configuration is used for reproducing Figures 9, 10, 11(a), 11(c), and 12. The 50-node experiment in Figure 11(b) is reproduced on AWS.
 
-The CloudLab profile provisions 10 C6220 nodes connected through a dedicated experimental LAN. Each physical node runs one replica and one co-located benchmark client.
+#### 3.1.1 Configure Portal API Access
 
-> **Note:** The 10-node CloudLab configuration is used for reproducing Figures 9, 10, 11(a), 11(c), and 12. The 50-node experiment in Figure 11(b) is reproduced on AWS.
+Log in to the CloudLab/APT portal and download a Portal API token from the account menu. Save it to the path configured by `portal.token` in `cloudlab_settings.json`.
 
-**Step 1: Download the CloudLab credential**
+In `cloudlab_settings.json`, update the Portal API fields: `portal.url`, `portal.token`, `portal.project`, `portal.profile_name`, `portal.profile_project`, `portal.profile_script`, and `portal.duration_hours`.
 
-Log in to the CloudLab portal and download your user credential, which is a `.pem` file.
+Also update the experiment, SSH key, and repository fields: `experiment.name`, `experiment.nodes`, `experiment.node_type`, `experiment.disk_image`, `key.private`, `key.pubkey`, `repo.url`, and `repo.branch`.
 
-**Step 2: Configure CloudLab settings**
-
-Edit `cloudlab_settings.json` and enter your CloudLab account, project, credential, and experiment information.
-
-**Step 3: Create the CloudLab profile.**
-
-Run:
-```bash
-python cloudlab/create_profile.py
-```
-
-This command creates or updates the CloudLab profile. It does not allocate or start physical nodes.
-
-The profile creation command only needs to be executed once unless profile.py or the hardware configuration is changed.
+Do not edit `cloudlab/profile.py` by hand. Change parameters in `cloudlab_settings.json` instead.
 
 #### 3.1.2 Instantiate the Experiment
 
-Start a CloudLab experiment from the previously created profile:
+After updating `cloudlab_settings.json`, start the experiment with:
+
 ```bash
-python cloudlab/start_experiment.py
+python cloudlab/portal_experiment.py start
 ```
 
-If finish the experiment and don't run for a second time, run the command below to terminate the experiment.
+`start` already regenerates `cloudlab/profile.py` from `cloudlab_settings.json`, creates or updates the portal profile, and then instantiates the experiment. You do not need to run `create-profile` separately for the normal artifact workflow.
+
+`create-profile` is optional. Use it only if you want to upload or refresh the portal profile without starting an experiment:
+
 ```bash
-python cloudlab/terminate_experiment.py
+python cloudlab/portal_experiment.py create-profile
+```
+
+Check the experiment status until it becomes `ready`:
+
+```bash
+python cloudlab/portal_experiment.py status
+```
+
+When the experiment is ready, download the manifests and write the allocated login hosts:
+
+```bash
+python cloudlab/portal_experiment.py manifests
+```
+
+This creates:
+
+```text
+build/manifest.xml
+build/nodes
+build/head-node
 ```
 
 #### 3.1.3 Initialize the Nodes
 
+Wait until all allocated nodes accept SSH:
+
+```bash
+python cloudlab/wait_experiment.py
+```
+
+Then wait until the startup script on every node finishes:
+
+```bash
+python cloudlab/wait_bootstrap.py
+```
+
+The bootstrap succeeds only if every node creates `/local/bootstrap.done`. If any node creates `/local/bootstrap.failed`, check `/local/bootstrap.log` on that node.
+
+To terminate the experiment:
+
+```bash
+python cloudlab/portal_experiment.py terminate
+```
 
 #### 3.1.4 Deploy the Artifact
 

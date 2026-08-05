@@ -9,14 +9,14 @@ pc.defineParameter(
     "nodes",
     "Number of physical nodes",
     portal.ParameterType.INTEGER,
-    10,
+    11,
     longDescription="Number of CloudLab raw PCs to reserve.",
 )
 pc.defineParameter(
     "repo_url",
     "Artifact repository URL",
     portal.ParameterType.STRING,
-    "https://github.com/michaelwcl323/manta_nsdi27",
+    "https://github.com/michaelwcl323/manta-nsdi27.git",
 )
 pc.defineParameter(
     "ref",
