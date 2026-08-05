@@ -1,0 +1,87 @@
+{
+    "experiment": {
+        "name": "manta-ae",
+        "nodes": 11,
+        "node_type": "r320",
+        "aggregate": "apt.emulab.net",
+        "disk_image": "urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU22-64-STD"
+    },
+    "credential": {
+        "cert": "cloudlab.pem",
+        "project": "LeaderBased",
+        "ask_passphrase": true
+    },
+    "key": {
+        "path": "/users/michael9/.ssh/cloudlab_michael9",
+        "pubkey": "~/.ssh/cloudlab_michael9.pub"
+    },
+    "ssh_key_password": "michael",
+    "port": 5000,
+    "repo": {
+        "name": "manta_nsdi27",
+        "url": "https://github.com/michaelwcl323/manta_nsdi27",
+        "branch": "artifact-evaluation"
+    },
+    "hosts": [
+        {
+            "hostname": "10.10.1.1",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.2",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.3",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.4",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.5",   
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.6",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.7",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.8",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.9",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        },
+        {
+            "hostname": "10.10.1.10",
+            "username": "michael9",
+            "port": 22,
+            "region": "apt"
+        }
+    ]
+}
