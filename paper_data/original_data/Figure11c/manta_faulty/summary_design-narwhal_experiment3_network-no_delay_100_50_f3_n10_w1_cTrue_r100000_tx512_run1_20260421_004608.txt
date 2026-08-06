@@ -1,0 +1,32 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Design tag: narwhal_experiment3
+ Network tag: no_delay_100_50
+ Faults: 3 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 70,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 100 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 4 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 69,826 tx/s
+ Consensus BPS: 35,750,782 B/s
+ Consensus latency: 499 ms
+
+ End-to-end TPS: 69,791 tx/s
+ End-to-end BPS: 35,732,747 B/s
+ End-to-end latency: 589 ms
+-----------------------------------------

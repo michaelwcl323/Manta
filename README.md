@@ -204,7 +204,7 @@ Paper data is under `paper_data/original_data/`. Regenerated figures go to `resu
 
 #### Figure 10(a)
 
-Mean consensus latency vs $\kappa$ for each $(\sigma, \mathrm{ref})$ series. Latencies are read from `paper_data/original_data/10a_10b/consensus_summary.csv` and averaged over runs with the same $(\sigma, \kappa, \mathrm{ref})$.
+Mean consensus latency vs $\kappa$ for each $(\sigma, \mathrm{ref})$ series. Latencies are read from `paper_data/original_data/Figure10a_10b/consensus_summary.csv` and averaged over runs with the same $(\sigma, \kappa, \mathrm{ref})$.
 
 ```bash
 cd paper_data/graph_generated_code/experiment2
@@ -234,7 +234,7 @@ results/regenerate_graphs/reference_impact_kappa2_by_sigma.pdf
 
 #### Figure 10(c)
 
-Attack-window latency timeseries overlay from `paper_data/original_data/10c/`.
+Attack-window latency timeseries overlay from `paper_data/original_data/Figure10c/`.
 
 Main script: `plot_attack_latency_timeseries.py` (imports the shared helpers above).
 
@@ -243,10 +243,10 @@ cd paper_data/graph_generated_code/experiment2
 
 python3 plot_attack_latency_timeseries.py \
   --merge-four-runs \
-    ../../original_data/10c/20260419_092353_560935_cloudlab-n10-r100000-run1-s1-k2-ref4-tag-experiment2_attack_final_latency.csv \
-    ../../original_data/10c/20260419_123518_715243_cloudlab-n10-r100000-run1-s1-k2-ref7-tag-experiment2_attack_final_latency.csv \
-    ../../original_data/10c/20260419_092900_079578_cloudlab-n10-r100000-run1-s1-k3-ref7-tag-experiment2_attack_final_latency.csv \
-    ../../original_data/10c/20260419_093137_848886_cloudlab-n10-r100000-run1-s1-k3-ref10-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/Figure10c/20260419_092353_560935_cloudlab-n10-r100000-run1-s1-k2-ref4-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/Figure10c/20260419_123518_715243_cloudlab-n10-r100000-run1-s1-k2-ref7-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/Figure10c/20260419_092900_079578_cloudlab-n10-r100000-run1-s1-k3-ref7-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/Figure10c/20260419_093137_848886_cloudlab-n10-r100000-run1-s1-k3-ref10-tag-experiment2_attack_final_latency.csv \
   --time-axis commit \
   --rolling-stat mean \
   --attack-start-secs 60 \
@@ -264,9 +264,89 @@ Each command succeeds if the corresponding PDF is created and the script prints 
 
 ### 4.3 Experiment 3
 
+Plotting code for Experiment 3 lives in `paper_data/graph_generated_code/experiment3/`:
+
+- `Figure11a/plot_mean_tps_latency.py`
+- `Figure11b/plot_mean_tps_latency.py`
+- `Figure11c/plot_mean_tps_latency.py`
+
+Paper data is under `paper_data/original_data/Figure11a/`, `paper_data/original_data/Figure11b/`, and `paper_data/original_data/Figure11c/`.
+Regenerated figures go to `results/regenerate_graphs/`.
+
+#### Figure 11(a)
+
+Mean consensus throughput-latency curve for five protocols (Chitu, DAG-Rider, Mahi-mahi, Manta, Tusk), using aggregated CSV data from `paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv`.
+
+```bash
+cd paper_data/graph_generated_code/experiment3/Figure11a
+python3 plot_mean_tps_latency.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/631_consensus_tps_vs_consensus_latency.pdf
+results/regenerate_graphs/legend.pdf
+```
+
+#### Figure 11(b)
+
+50-node protocol comparison curve generated from summary `*.txt` files in `paper_data/original_data/Figure11b/` (the protocol folders directly contain the summaries).
+
+```bash
+cd paper_data/graph_generated_code/experiment3/Figure11b
+python3 plot_mean_tps_latency.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/50nodes_protocol_comparison.pdf
+```
+
+#### Figure 11(c)
+
+Faulty-setting protocol comparison curve generated from summary `*.txt` files in `paper_data/original_data/Figure11c/` (the protocol folders directly contain the summaries).
+
+```bash
+cd paper_data/graph_generated_code/experiment3/Figure11c
+python3 plot_mean_tps_latency.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/faulty_graph.pdf
+```
+
+Each command succeeds if the corresponding PDF is created and the script prints the output path.
+
 ### 4.4 Experiment 4
 
+Plotting code for Experiment 4 lives in `paper_data/graph_generated_code/experiment4/`.
 
+#### Figure 12
+
+Compare complete Manta against the no-flexible-coin ablation at input rates $80{,}000$, $100{,}000$, and $120{,}000$ tx/s.
+
+- **complete**: Manta rows from `paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv`
+- **no flexible coin**: averages of summary `*.txt` files in `paper_data/original_data/Figure12/`
+
+```bash
+cd paper_data/graph_generated_code/experiment4
+python3 plot_manta_consensus_tps_latency.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k.pdf
+results/regenerate_graphs/manta_consensus_latency_only_no_legend.pdf
+results/regenerate_graphs/manta_consensus_throughput_only_no_legend.pdf
+results/regenerate_graphs/manta_consensus_legend_only.pdf
+```
+
+The command succeeds if the corresponding PDFs are created and the script prints the output paths.
 
 ## 5. 
 

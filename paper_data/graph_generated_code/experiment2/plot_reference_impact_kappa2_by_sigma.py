@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plot mean consensus latency vs reference for kappa=2, by sigma.
 
-Reads per-run latencies from ``paper_data/original_data/10a_10b/consensus_summary.csv``
+Reads per-run latencies from ``paper_data/original_data/Figure10a_10b/consensus_summary.csv``
 and averages runs that share the same (sigma, kappa=2, reference).
 """
 
@@ -24,7 +24,7 @@ from paper_figure_save import savefig_tight_target_aspect
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
-DEFAULT_SUMMARY = REPO_ROOT / "paper_data" / "original_data" / "10a_10b" / "consensus_summary.csv"
+DEFAULT_SUMMARY = REPO_ROOT / "paper_data" / "original_data" / "Figure10a_10b" / "consensus_summary.csv"
 DEFAULT_OUTPUT = REPO_ROOT / "results" / "regenerate_graphs" / "reference_impact_kappa2_by_sigma.pdf"
 
 REFERENCES = [4, 7, 10]
@@ -110,7 +110,7 @@ def parse_args() -> argparse.Namespace:
         "--summary-csv",
         type=Path,
         default=DEFAULT_SUMMARY,
-        help="Per-run consensus summary CSV (default: original_data/10a_10b/consensus_summary.csv).",
+        help="Per-run consensus summary CSV (default: original_data/Figure10a_10b/consensus_summary.csv).",
     )
     parser.add_argument(
         "--output",

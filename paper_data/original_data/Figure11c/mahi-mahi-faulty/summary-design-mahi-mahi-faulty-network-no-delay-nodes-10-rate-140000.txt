@@ -1,0 +1,80 @@
+================================================================================
+timestamp: 2026-04-21 03:43:46
+design_tag: mahi-mahi-faulty
+network_tag: no-delay
+nodes: 10
+rate: 140000
+run: 1/2
+attack: N/A
+================================================================================
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Faults: 3 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 98,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 100 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 4 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 97,972 tx/s
+ Consensus BPS: 50,161,782 B/s
+ Consensus latency: 594 ms
+
+ End-to-end TPS: 97,327 tx/s
+ End-to-end BPS: 49,831,603 B/s
+ End-to-end latency: 909 ms
+-----------------------------------------
+
+================================================================================
+timestamp: 2026-04-21 03:46:36
+design_tag: mahi-mahi-faulty
+network_tag: no-delay
+nodes: 10
+rate: 140000
+run: 2/2
+attack: N/A
+================================================================================
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Faults: 3 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 98,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 100 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 4 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 97,785 tx/s
+ Consensus BPS: 50,065,916 B/s
+ Consensus latency: 591 ms
+
+ End-to-end TPS: 97,359 tx/s
+ End-to-end BPS: 49,847,662 B/s
+ End-to-end latency: 904 ms
+-----------------------------------------
+
