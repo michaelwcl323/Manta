@@ -375,41 +375,112 @@ results/regenerate_graphs/manta_consensus_legend_only.pdf
 
 The command succeeds if the corresponding PDFs are created and the script prints the output paths.
 
-## 5. 
+## 5. Reproducing the Paper Results
 
-### E1: Impact of Heterogeneity — Figure 9
+### 5.1 Experiment Overview
 
-#### E1.1: Goal
+| Experiment ID | Paper Result | Platform |
+|---|---|---|
+| `figure9` | Figure 9 | CloudLab |
+| `figure10a` | Figure 10(a) | CloudLab |
+| `figure10b` | Figure 10(b) | CloudLab |
+| `figure10c` | Figure 10(c) | CloudLab |
+| `figure11a` | Figure 11(a) | CloudLab |
+| `figure11b` | Figure 11(b) | AWS |
+| `figure11c` | Figure 11(c) | CloudLab |
+| `figure12` | Figure 12 | CloudLab |
+| `table2` | Table 2 | CloudLab |
 
-#### E1.2: Systems and Environment
+### 5.2 E1: Impact of Heterogeneity — Figure 9
 
-#### E1.3: Command
+#### Configuration
 
-#### E1.4: Runtime
+#### Command
 
-#### E1.5: Output
+#### Runtime and Output
 
-#### E1.6: Expected Result
+#### Expected Result
 
-### E2: Parameter Trade-offs — Figure 10
+### 5.3 E2: Parameter Trade-offs — Figure 10
 
-#### E2.1: Goal
+#### Figure 10(a): Effect of `σ` and `ref`
 
-#### E2.2: Systems and Environment
+##### Configuration
 
-#### E2.3: Command
+##### Command
 
-#### E2.4: Runtime
+##### Runtime and Output
 
-#### E2.5: Output
+##### Expected Result
 
-#### E2.6: Expected Result
+#### Figure 10(b): Effect of `κ`
 
-### E3: Performance Comparison — Figure 11
+##### Configuration
 
-### E4: Flexible-Coin Ablation — Figure 12
+##### Command
 
-### E5: Resource Utilization — Table 2
+##### Runtime and Output
+
+##### Expected Result
+
+#### Figure 10(c): Byzantine Robustness
+
+##### Configuration
+
+##### Command
+
+##### Runtime and Output
+
+##### Expected Result
+
+### 5.4 E3: Performance Comparison — Figure 11
+
+#### Figure 11(a): 10-Replica Fault-Free Performance
+
+##### Configuration
+
+##### Command
+
+##### Runtime and Output
+
+##### Expected Result
+
+#### Figure 11(b): 50-Replica Large-Scale Performance
+
+Figure 11(b) is reproduced using the 50-replica AWS deployment.
+
+See the separate [AWS large-scale experiment README](aws/README.md) for the
+environment setup, execution commands, runtime, output, and expected result.
+
+#### Figure 11(c): Performance under Silent Faults
+
+##### Configuration
+
+##### Command
+
+##### Runtime and Output
+
+##### Expected Result
+
+### 5.5 E4: Flexible-Coin Ablation — Figure 12
+
+#### Configuration
+
+#### Command
+
+#### Runtime and Output
+
+#### Expected Result
+
+### 5.6 E5: Resource Utilization — Table 2
+
+#### Configuration
+
+#### Command
+
+#### Runtime and Output
+
+#### Expected Result
 
 
 ## 6. Troubleshooting
