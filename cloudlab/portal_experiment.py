@@ -18,7 +18,11 @@ DEFAULT_SETTINGS = Path("cloudlab_settings.json")
 DEFAULT_DISK_IMAGE = "urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU22-64-STD"
 PROXY_ENV_NAMES = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")
 
-PROFILE_TEMPLATE = '''"""CloudLab profile for the MANTA NSDI'27 artifact."""
+PROFILE_TEMPLATE = '''"""CloudLab profile for the MANTA NSDI'27 artifact.
+
+Creates a small-lan style shared LAN so replica nodes are reachable at
+10.10.1.1 .. 10.10.1.N (controller is the last node).
+"""
 
 import geni.portal as portal
 import geni.rspec.pg as rspec
@@ -69,11 +73,17 @@ bootstrap = (
     "(touch /local/bootstrap.failed; exit 1)"
 )
 
+# Small-lan style shared LAN for intra-experiment traffic (10.10.1.0/24).
+lan = request.LAN("lan")
+
 for index in range(params.nodes):
     node = request.RawPC("node-%d" % index)
     node.disk_image = "{disk_image}"
     if params.node_type:
         node.hardware_type = params.node_type
+    iface = node.addInterface("eth1")
+    iface.addAddress(rspec.IPv4Address("10.10.1.%d" % (index + 1), "255.255.255.0"))
+    lan.addInterface(iface)
     node.addService(
         rspec.Execute(
             shell="bash",
@@ -377,9 +387,12 @@ def write_manifests(settings: dict, args: argparse.Namespace) -> dict:
 
     (out_dir / "manifest.xml").write_text("\n".join(xml_parts) + "\n", encoding="utf-8")
     if all_hosts:
+        controller = all_hosts[-1]
         (out_dir / "nodes").write_text("\n".join(all_hosts) + "\n", encoding="utf-8")
-        (out_dir / "head-node").write_text(all_hosts[0] + "\n", encoding="utf-8")
-        print(f"[cloudlab] head node: {all_hosts[0]}")
+        (out_dir / "controller").write_text(controller + "\n", encoding="utf-8")
+        # Keep head-node as an alias of the controller for older scripts.
+        (out_dir / "head-node").write_text(controller + "\n", encoding="utf-8")
+        print(f"[cloudlab] controller (last node): {controller}")
         print(f"[cloudlab] node list written to {out_dir / 'nodes'}")
     else:
         print("[cloudlab] warning: no login hostnames found in portal manifests", file=sys.stderr)

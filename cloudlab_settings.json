@@ -1,6 +1,6 @@
 {
     "experiment": {
-        "name": "manta-ae3",
+        "name": "manta-ae4",
         "nodes": 11,
         "node_type": "r320",
         "aggregate": "apt.emulab.net",
@@ -23,6 +23,7 @@
         "private": "~/.ssh/cloudlab_michael9",
         "pubkey": "~/.ssh/cloudlab_michael9.pub"
     },
+    "ssh_key_password": <>,
     "port": 5000,
     "repo": {
         "name": "manta-nsdi27",
