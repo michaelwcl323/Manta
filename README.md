@@ -340,7 +340,6 @@ python3 plot_manta_consensus_tps_latency.py
 Output:
 
 ```text
-results/regenerate_graphs/manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k.pdf
 results/regenerate_graphs/manta_consensus_latency_only_no_legend.pdf
 results/regenerate_graphs/manta_consensus_throughput_only_no_legend.pdf
 results/regenerate_graphs/manta_consensus_legend_only.pdf
