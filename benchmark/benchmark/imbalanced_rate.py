@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 # This file is used to generate a list of rate with zipf
 
 # Zipf distribution constant
@@ -62,35 +63,42 @@ def new_zipf(r: object, s: float, v: float, imax: int) -> Optional[Zipf]:
 class ZipfAllocator:
     def __init__(self, total_tps: int, nodes: int, s: float) -> None:
         """
-        :param total_tps: total TPS (for example, 60000)
-        :param nodes: number of nodes (for example, 10)
-        :param s: ZIPFIAN_CONSTANT (theta) used by YCSB, typically 0.99
+        :param total_tps: 总 TPS (例如 60000)
+        :param nodes: 节点数 (例如 10)
+        :param s: 对应 YCSB 中的 ZIPFIAN_CONSTANT (theta)，通常为 0.99
         """
         if total_tps <= 0 or nodes <= 0:
             raise ValueError("total_tps and nodes must be > 0")
         
         self.total_tps = total_tps
         self.nodes = nodes
+        # 在 YCSB 源码中，theta 即 zipfianconstant
         self.theta = s
 
     def allocate(self) -> list[int]:
         """
-        Allocate TPS using the same Zipfian density logic as YCSB ZipfianGenerator.
-        The output ensures the sum is exactly total_tps.
+        按照 YCSB ZipfianGenerator 的概率密度逻辑分配 TPS。
+        结果将确保 60000 TPS 严格分配到各节点，且分布曲线与 Java 源码一致。
         """
+        # YCSB 的分布逻辑：第 i 个元素的频率与 (i+1)^-theta 成正比
+        # 这里我们将每个 node 视为一个 bucket
         weights = []
         for i in range(1, self.nodes + 1):
             weights.append(1.0 / math.pow(i, self.theta))
         
         sum_weights = sum(weights)
         
+        # 计算每个节点应得的理论 TPS (浮点数)
         raw_rates = [(self.total_tps * w / sum_weights) for w in weights]
         
+        # 转换为整数并处理舍入误差，确保总和绝对等于 total_tps
         alloc = [int(r) for r in raw_rates]
         remainder = self.total_tps - sum(alloc)
         
         if remainder > 0:
+            # 按照小数部分从大到小排序，补齐缺失的 TPS (最大余数法)
             fractions = [(r - int(r)) for r in raw_rates]
+            # 这里的索引顺序决定了补齐的优先级
             adjust_indices = sorted(range(self.nodes), key=lambda k: fractions[k], reverse=True)
             for i in range(remainder):
                 alloc[adjust_indices[i]] += 1

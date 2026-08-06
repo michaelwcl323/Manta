@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from datetime import datetime
 from glob import glob
 from multiprocessing import Pool
@@ -82,15 +83,6 @@ class LogParser:
         proposals, commits, self.configs, primary_ips = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
-        self.committed_with_proposals = [
-            digest for digest in self.commits if digest in self.proposals
-        ]
-        missing_commit_proposals = len(self.commits) - len(self.committed_with_proposals)
-        if missing_commit_proposals:
-            Print.warn(
-                f'Skipped {missing_commit_proposals:,} committed batch(es) missing '
-                'proposal timestamps when computing consensus metrics'
-            )
 
         # Parse the workers logs.
         try:
@@ -204,15 +196,6 @@ class LogParser:
 
         tmp = findall(r'\[+([^\] \[]+) [^\]]*\] Committed B\d+\([^ ]+\) -> ([^ ]+=)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
-
-        # Newer benchmark builds log commits as DAG_COMMITTED lines instead of
-        # the legacy "Committed B..." format.
-        if not tmp:
-            tmp = findall(
-                r'\[+([^\] \[]+) [^\]]*\] DAG_COMMITTED path=\S+ round=\d+ node=\d+ digest=([^ ]+=)',
-                log,
-            )
-            tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
         configs = {
@@ -263,39 +246,26 @@ class LogParser:
         return datetime.timestamp(x)
 
     def _consensus_throughput(self):
-        if not self.committed_with_proposals:
+        if not self.commits:
             return 0, 0, 0
-        start = min(self.proposals[d] for d in self.committed_with_proposals)
-        end = max(self.commits[d] for d in self.committed_with_proposals)
+        start, end = min(self.proposals.values()), max(self.commits.values())
         duration = end - start
-        if duration <= 0:
-            return 0, 0, 0
-        bytes = sum(self.sizes.get(d, 0) for d in self.committed_with_proposals)
+        bytes = sum(self.sizes.values())
         bps = bytes / duration
         tps = bps / self.size[0]
         return tps, bps, duration
 
     def _consensus_latency(self):
-        latency = [
-            self.commits[d] - self.proposals[d]
-            for d in self.committed_with_proposals
-        ]
+        latency = [c - self.proposals[d] for d, c in self.commits.items()]
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self):
         if not self.commits:
             return 0, 0, 0
         start_candidates = [x for x in self.start if x is not None]
-        if start_candidates:
-            start = min(start_candidates)
-        elif self.committed_with_proposals:
-            start = min(self.proposals[d] for d in self.committed_with_proposals)
-        else:
-            return 0, 0, 0
+        start = min(start_candidates) if start_candidates else min(self.proposals.values())
         end = max(self.commits.values())
         duration = end - start
-        if duration <= 0:
-            return 0, 0, 0
         bytes = sum(self.sizes.values())
         bps = bytes / duration
         tps = bps / self.size[0]

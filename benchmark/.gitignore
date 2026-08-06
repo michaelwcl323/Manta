@@ -1,5 +1,7 @@
 node
 benchmark_client
+results/**/logs/
+logs
 plots
 
 # Byte-compiled / optimized / DLL files

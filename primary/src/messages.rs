@@ -1,6 +1,7 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
-use config::{Committee, Stake, WorkerId};
+use config::{Committee, WorkerId};
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
@@ -94,12 +95,6 @@ impl Header {
     pub fn store_solid_wave_merged_vertices(&mut self, vertices: HashSet<Digest>) {
         self.solid_wave_vertices_merged.extend(vertices);
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct HeaderBundle {
-    pub header: Header,
-    pub parent_certificates: Vec<Certificate>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -239,14 +234,6 @@ impl Certificate {
     }
 
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
-        self.verify_with_threshold(committee, committee.quorum_threshold())
-    }
-
-    pub fn verify_with_threshold(
-        &self,
-        committee: &Committee,
-        threshold: Stake,
-    ) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
@@ -265,7 +252,10 @@ impl Certificate {
             used.insert(*name);
             weight += voting_rights;
         }
-        ensure!(weight >= threshold, DagError::CertificateRequiresQuorum);
+        ensure!(
+            weight >= committee.quorum_threshold(),
+            DagError::CertificateRequiresQuorum
+        );
 
         // Check the signatures.
         Signature::verify_batch(&self.digest(), &self.votes).map_err(DagError::from)

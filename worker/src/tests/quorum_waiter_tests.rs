@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use crate::common::{batch, committee_with_base_port, keys, listener};
 use crate::worker::WorkerMessage;
@@ -7,11 +8,11 @@ use network::ReliableSender;
 use tokio::sync::mpsc::channel;
 
 #[tokio::test]
-async fn forwards_batch_without_waiting_for_quorum() {
+async fn wait_for_quorum() {
     let (tx_message, rx_message) = channel(1);
     let (tx_batch, mut rx_batch) = channel(1);
     let (myself, _) = keys().pop().unwrap();
-    let committee = committee_with_base_port(17_000);
+    let committee = committee_with_base_port(7_000);
 
     // Spawn a `QuorumWaiter` instance.
     QuorumWaiter::spawn(committee.clone(), /* stake */ 1, rx_message, tx_batch);
@@ -44,7 +45,7 @@ async fn forwards_batch_without_waiting_for_quorum() {
     };
     tx_message.send(message).await.unwrap();
 
-    // The `QuorumWaiter` should forward the batch immediately.
+    // Wait for the `QuorumWaiter` to gather enough acknowledgements and output the batch.
     let output = rx_batch.recv().await.unwrap();
     assert_eq!(output, serialized);
 

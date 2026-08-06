@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from fabric import task
 
 from benchmark.local import LocalBench
@@ -315,30 +316,30 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=3, enable_wait=True):
     ''' Run benchmarks on CloudLab '''
     bench_params = {
         'faults': 0,
-        'nodes': [50],
+        'nodes': [10],
         'workers': 1,
         'collocate': True,
         'rate_type': 'balanced',
-        'rate': [20000],
-        # 'rate': [80000, 100000, 120000, 140000],
+        'rate': [20000,40000,60000,80000,100000,120000,140000],
+        # 'rate': [120000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 1,
-        'network_tag': 'chitu-ack',
+        'runs': 2,
+        'network_tag': 'no-delay-forpaper',
         'rtt_tag': 'no-delay',
     }
     node_params = {
         'header_size': 1_000,  # bytes
-        'max_header_delay': 200,  # ms
-        'gc_depth': 5000,  # rounds
+        'max_header_delay': 50,  # ms
+        'gc_depth': 50,  # rounds
         'sync_retry_delay': 1000,  # ms
         'sync_retry_nodes': 7,  # number of nodes
         'batch_size': 500_000,  # bytes
-        'max_batch_delay': 200,  # ms
+        'max_batch_delay': 50,  # ms
         'sigma': 1,
         'kappa': 3,
-        'reference': 33,
-        'coverage': 33,
+        'reference': 7,
+        'coverage': 7,
         's': 0.99,
         'enable_wait': _as_bool(enable_wait),
     }

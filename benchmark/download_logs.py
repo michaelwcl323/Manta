@@ -349,8 +349,8 @@ def collect_primary_logs_via_node0(conn, repo_name, host_info, node_indices=None
     
     return collected_logs, temp_dir
 
-def download_logs(settings_file='cloudlab_settings.json', max_workers=1, node_indices=None):
-    """Download logs from the selected CloudLab hosts directly from local machine"""
+def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
+    """Download logs from all CloudLab hosts directly from local machine"""
     
     # Load settings
     try:
@@ -368,13 +368,8 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1, node_in
         Print.error('No hosts configured')
         return False
     
-    # If node_indices is None, download from all nodes
-    if node_indices is None:
-        node_indices = list(range(len(host_info)))
-
-    Print.info(f'Downloading logs directly from {len(node_indices)} nodes')
+    Print.info(f'Downloading logs directly from {len(host_info)} nodes')
     Print.info(f'Repository name: {repo_name}')
-    Print.info(f'Node indices: {node_indices}')
     Print.info('=' * 60)
     sys.stdout.flush()
     
@@ -387,22 +382,17 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1, node_in
     logs_dir = Path(PathMaker.logs_path())
     logs_dir.mkdir(parents=True, exist_ok=True)
     
-    # Download logs directly from each selected node
+    # Download logs directly from each node
     try:
-        Print.info('Downloading logs directly from selected nodes...')
+        Print.info('Downloading logs directly from all nodes...')
         sys.stdout.flush()
         
-        for idx, i in enumerate(node_indices):
-            if i >= len(host_info):
-                Print.warn(f'  ⚠ Node{i} index out of range, skipping...')
-                continue
-
-            host = host_info[i]
+        for i, host in enumerate(host_info):
             hostname = host['hostname']
             username = host.get('username', 'root')
             port = host.get('port', 22)
             
-            Print.info(f'  [{idx+1}/{len(node_indices)}] Downloading from node{i} ({hostname})...')
+            Print.info(f'  [{i+1}/{len(host_info)}] Downloading from node{i} ({hostname})...')
             sys.stdout.flush()
             
             # Helper function to download a single file with fresh connection
@@ -622,12 +612,5 @@ if __name__ == '__main__':
                 sys.exit(1)
         success = download_primary_logs(args.settings, node_indices)
     else:
-        node_indices = None
-        if args.nodes:
-            try:
-                node_indices = [int(x.strip()) for x in args.nodes.split(',')]
-            except ValueError:
-                Print.error(f'Invalid node indices: {args.nodes}')
-                sys.exit(1)
-        success = download_logs(args.settings, args.max_workers, node_indices=node_indices)
+        success = download_logs(args.settings, args.max_workers)
     sys.exit(0 if success else 1)

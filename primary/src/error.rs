@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::primary::Round;
 use crypto::{CryptoError, Digest, PublicKey};
 use store::StoreError;
@@ -49,9 +50,6 @@ pub enum DagError {
 
     #[error("Received certificate without a quorum")]
     CertificateRequiresQuorum,
-
-    #[error("Received certificate without enough voting weight (weak QC / sync)")]
-    CertificateInsufficientVoteWeight,
 
     #[error("Parents of header {0} are not a quorum")]
     HeaderRequiresQuorum(Digest),

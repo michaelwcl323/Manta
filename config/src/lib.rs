@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crypto::{generate_production_keypair, PublicKey, SecretKey};
 use log::info;
 use serde::de::DeserializeOwned;
@@ -210,12 +211,6 @@ impl Committee {
         // then (N + 2) / 3 = f + 1 + k/3 = f + 1
         let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
         (total_votes + 2) / 3
-    }
-
-    /// Minimum number of parent certificates treated as the \(n-f\) honest majority (unit-stake model).
-    /// For \(N=3f+1+k\), this is \(N-f = 2f+1+k\), i.e. `size - floor((size-1)/3)`.
-    pub fn n_minus_f_threshold(&self) -> usize {
-        self.size() - (self.size().saturating_sub(1) / 3)
     }
 
     pub fn max_threshold(&self) -> Stake {

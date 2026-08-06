@@ -1,0 +1,78 @@
+Adaptive Wait Summary
+=====================
+
+primary-0.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1068 releases=549 helpful=549 gained_vertices=1617 fast_path_promoted=1584 slow_path_promoted=16
+primary-1.log: candidate_checks=559 decision_wait=551 decision_direct_parent=8 starts=551 extends=1071 releases=551 helpful=551 gained_vertices=1622 fast_path_promoted=1590 slow_path_promoted=15
+primary-2.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1070 releases=549 helpful=549 gained_vertices=1619 fast_path_promoted=1593 slow_path_promoted=13
+primary-3.log: candidate_checks=559 decision_wait=551 decision_direct_parent=8 starts=551 extends=1077 releases=551 helpful=551 gained_vertices=1628 fast_path_promoted=1590 slow_path_promoted=14
+primary-4.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1073 releases=549 helpful=549 gained_vertices=1622 fast_path_promoted=1590 slow_path_promoted=13
+primary-5.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1073 releases=549 helpful=549 gained_vertices=1622 fast_path_promoted=1593 slow_path_promoted=10
+primary-6.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1062 releases=549 helpful=549 gained_vertices=1611 fast_path_promoted=1587 slow_path_promoted=12
+primary-7.log: candidate_checks=559 decision_wait=549 decision_direct_parent=10 starts=549 extends=1058 releases=549 helpful=549 gained_vertices=1607 fast_path_promoted=1581 slow_path_promoted=13
+primary-8.log: candidate_checks=559 decision_wait=547 decision_direct_parent=12 starts=547 extends=1051 releases=547 helpful=547 gained_vertices=1598 fast_path_promoted=1576 slow_path_promoted=11
+primary-9.log: candidate_checks=559 decision_wait=538 decision_direct_parent=21 starts=538 extends=1022 releases=538 helpful=538 gained_vertices=1560 fast_path_promoted=1531 slow_path_promoted=6
+
+Total releases: 5481
+Helpful releases (gained_parents > 0): 5481
+Timeout releases: 0
+Resolved releases: 5481
+Total gained parents: 16106
+Unique gained parent vertices: 2696
+Wait-promoted fast-path committed vertices: 15815
+Unique wait-promoted fast-path vertices: 2625
+Wait-promoted slow-path committed vertices: 123
+Unique wait-promoted slow-path vertices: 26
+
+Candidate checks: 5590
+Decision=wait: 5481
+Decision=direct_parent: 109
+Candidate authors seen: 55765
+Known vertices seen: 55627
+Known+F+1 candidates: 54916
+Known but support insufficient: 711
+F+1 without header: 101
+Delivered-filtered candidates: 39070
+Equivocation-filtered candidates: 0
+Wait decision ratio: 98.05%
+Direct-parent ratio: 1.95%
+Known vertex rate: 99.75%
+Known+F+1 rate: 98.48%
+F+1-without-header rate: 0.18%
+Known-but-support-insufficient rate: 1.28%
+Average gained parents per release: 2.94
+
+Wait elapsed_ms distribution:
+  all releases: n=5481 min=0.0 avg=32.4 p50=20.0 p90=54.0 p95=73.0 p99=113.0 max=5765.0
+  helpful releases: n=5481 min=0.0 avg=32.4 p50=20.0 p90=54.0 p95=73.0 p99=113.0 max=5765.0
+
+Gained parents distribution:
+  gained_parents: n=5481 min=1.00 avg=2.94 p50=3.00 p90=3.00 p95=3.00 p99=3.00 max=9.00
+  gained bucket counts: 0=0 1=95 2=183 3=5197 4+=6
+
+Benefit / cost ratios:
+  elapsed_ms_per_gained_parent: n=5481 min=0.00 avg=9.53 p50=7.00 p90=18.33 p95=24.33 p99=37.73 max=640.56
+  elapsed_ms_per_fast_path_promotion: n=5370 min=0.00 avg=8.82 p50=7.00 p90=18.00 p95=24.00 p99=34.98 max=110.00
+
+Top helpful releases:
+  primary-0.log round=1 gained=9 reason=resolved elapsed_ms=5764 extensions=11 fast_path_promoted=0
+  primary-1.log round=1 gained=9 reason=resolved elapsed_ms=5765 extensions=11 fast_path_promoted=0
+  primary-2.log round=1 gained=9 reason=resolved elapsed_ms=5764 extensions=11 fast_path_promoted=0
+  primary-3.log round=1 gained=9 reason=resolved elapsed_ms=5765 extensions=11 fast_path_promoted=0
+  primary-4.log round=1 gained=9 reason=resolved elapsed_ms=5764 extensions=11 fast_path_promoted=0
+  primary-5.log round=1 gained=9 reason=resolved elapsed_ms=5725 extensions=13 fast_path_promoted=0
+  primary-0.log round=2 gained=3 reason=resolved elapsed_ms=7 extensions=2 fast_path_promoted=3
+  primary-0.log round=5 gained=3 reason=resolved elapsed_ms=8 extensions=2 fast_path_promoted=3
+  primary-0.log round=7 gained=3 reason=resolved elapsed_ms=16 extensions=3 fast_path_promoted=3
+  primary-0.log round=9 gained=3 reason=resolved elapsed_ms=12 extensions=2 fast_path_promoted=3
+
+Longest wait releases:
+  primary-1.log round=1 elapsed_ms=5765 gained=9 reason=resolved extensions=11 fast_path_promoted=0 slow_path_promoted=0
+  primary-3.log round=1 elapsed_ms=5765 gained=9 reason=resolved extensions=11 fast_path_promoted=0 slow_path_promoted=0
+  primary-0.log round=1 elapsed_ms=5764 gained=9 reason=resolved extensions=11 fast_path_promoted=0 slow_path_promoted=0
+  primary-2.log round=1 elapsed_ms=5764 gained=9 reason=resolved extensions=11 fast_path_promoted=0 slow_path_promoted=0
+  primary-4.log round=1 elapsed_ms=5764 gained=9 reason=resolved extensions=11 fast_path_promoted=0 slow_path_promoted=0
+  primary-5.log round=1 elapsed_ms=5725 gained=9 reason=resolved extensions=13 fast_path_promoted=0 slow_path_promoted=0
+  primary-2.log round=474 elapsed_ms=330 gained=3 reason=resolved extensions=2 fast_path_promoted=3 slow_path_promoted=0
+  primary-6.log round=365 elapsed_ms=248 gained=3 reason=resolved extensions=2 fast_path_promoted=3 slow_path_promoted=0
+  primary-5.log round=543 elapsed_ms=244 gained=3 reason=resolved extensions=2 fast_path_promoted=3 slow_path_promoted=0
+  primary-2.log round=493 elapsed_ms=224 gained=3 reason=resolved extensions=2 fast_path_promoted=3 slow_path_promoted=0

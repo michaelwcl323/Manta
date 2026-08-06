@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab Remote Benchmark
 
@@ -318,7 +319,7 @@ class CloudLabBench:
             # Add cargo to PATH permanently
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.bashrc',
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.profile',
-            f'(git clone {self.settings.repo_url} || (cd {self.settings.repo_name} ; git pull))',
+            f'(git clone {self.settings.repo_url} {self.settings.repo_name} || (cd {self.settings.repo_name} ; git pull))',
             f'cd {self.settings.repo_name}/benchmark && pip3 install -r requirements.txt'
         ]
         
@@ -1094,7 +1095,7 @@ class CloudLabBench:
         )
         committee.print(PathMaker.committee_file())
         
-        node_parameters.print(PathMaker.parameters_file())
+        node_parameters.print(PathMaker.parameters_file())  # 改为 print() 而不是 save()
         
         # Upload files to all hosts
         repo_name = self.settings.repo_name
@@ -1163,9 +1164,8 @@ class CloudLabBench:
         return committee
     
     def _logs(self, committee, faults, max_workers=1):
-        """Download logs only from hosts used in the current run."""
+        """Download logs from all hosts using download_logs.py"""
         Print.info('Downloading logs...')
-        node_indices = list(range(len(committee.primary_addresses(faults))))
         
         # Get benchmark directory (parent of benchmark/benchmark/)
         benchmark_dir = Path(__file__).parent.parent
@@ -1178,34 +1178,12 @@ class CloudLabBench:
             Path(PathMaker.logs_path()).mkdir(parents=True, exist_ok=True)
             return LogParser.process(PathMaker.logs_path(), faults=faults)
         
-        # Clear the scratch logs directory so stale logs from other hosts
-        # cannot leak into the parser for the current run.
-        logs_dir = benchmark_dir / PathMaker.logs_path()
-        try:
-            import shutil
-            if logs_dir.exists():
-                shutil.rmtree(logs_dir)
-            logs_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            Print.warn(f'⚠ Failed to reset local logs directory {logs_dir}: {e}')
-
-        # Run download_logs.py to download only the nodes used in this run.
+        # Run download_logs.py to download all logs
         try:
             import sys
-            node_arg = ','.join(str(i) for i in node_indices)
-            Print.info(
-                f'Running download_logs.py with max_workers={max_workers} '
-                f'for nodes={node_arg}...'
-            )
+            Print.info(f'Running download_logs.py with max_workers={max_workers}...')
             result = subprocess.run(
-                [
-                    sys.executable,
-                    str(download_logs_script),
-                    '--max-workers',
-                    str(max_workers),
-                    '--nodes',
-                    node_arg,
-                ],
+                [sys.executable, str(download_logs_script), '--max-workers', str(max_workers)],
                 cwd=str(benchmark_dir),
                 capture_output=False,  # Show output in real-time
                 text=True
@@ -1740,4 +1718,3 @@ SCRIPTEOF'''
                             continue
         
         Print.heading('All benchmarks completed')
-

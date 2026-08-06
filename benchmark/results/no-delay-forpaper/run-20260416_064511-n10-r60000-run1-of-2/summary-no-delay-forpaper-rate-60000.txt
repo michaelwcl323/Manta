@@ -1,0 +1,41 @@
+network_tag: no-delay-forpaper
+rtt_tag: no-delay
+run_index: 1/2
+nodes: 10
+rate: 60000
+workers: 1
+faults: 0
+collocate: True
+tx_size: 512
+trigger_attack: N/A
+
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 60,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 50 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 57,414 tx/s
+ Consensus BPS: 29,395,893 B/s
+ Consensus latency: 94 ms
+
+ End-to-end TPS: 57,391 tx/s
+ End-to-end BPS: 29,383,979 B/s
+ End-to-end latency: 159 ms
+-----------------------------------------

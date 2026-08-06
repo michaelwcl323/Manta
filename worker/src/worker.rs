@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use crate::helper::Helper;
 use crate::primary_connector::PrimaryConnector;
@@ -167,8 +168,8 @@ impl Worker {
                 .collect(),
         );
 
-        // The `QuorumWaiter` forwards the batch to the `Processor` immediately after sealing.
-        // Reliable worker-to-worker broadcast still happens in the background.
+        // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
+        // the batch to the `Processor`.
         QuorumWaiter::spawn(
             self.committee.clone(),
             /* stake */ self.committee.stake(&self.name),
