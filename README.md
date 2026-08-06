@@ -74,19 +74,17 @@ The test passes if it ends with:
 
 If you want to see the logs of functional tests, please find them in the folder `functional_test_results`.
 
-## 3. Reproducing the Paper Results
+## 3. Remote Environment Deployment
 
-### 3.1 Common Experimental Setup
+This section provisions the remote CloudLab APT cluster and deploys the artifact environment on all nodes.
 
-This section describes the common setup for the CloudLab APT cluster and AWS.
-
-CloudLab is used for the experiments in Figures 9, 10, 11(a), 11(c), and 12. Each experiment uses 10 replica nodes and one additional controller node. The controller coordinates deployment and experiment execution but does not participate in the consensus protocol.
+CloudLab is used for the experiments in Figures 9, 10, 11(a), 11(c), and 12. Each experiment uses 10 replica nodes and one additional controller node. The controller coordinates remote deployment and experiment execution but does not participate in the consensus protocol.
 
 The 50-replica experiment in Figure 11(b) is conducted on AWS because sufficient C6220 nodes may not be simultaneously available on CloudLab.
 
 All CloudLab settings are specified in `cloudlab_settings.json`.
 
-#### 3.1.1 Configure Portal API Access
+### 3.1 Configure Portal API Access
 
 Download a CloudLab Portal API token and update the following fields in
 `cloudlab_settings.json`:
@@ -113,7 +111,7 @@ repo.branch
 ```
 
 If the SSH private key is passphrase-protected, set `ssh_key_password` in `cloudlab_settings.json`. This value is required for the CloudLab remote functional test during deploy.
-#### 3.1.2 Instantiate the Experiment
+### 3.2 Instantiate the Experiment
 
 `start` regenerates the portal profile from `cloudlab_settings.json` and then instantiates the experiment. The profile provisions a shared experiment LAN so the replica `hosts` in `cloudlab_settings.json` can reach each other. If you change the profile, recreate the experiment with `terminate` then `start`.
 
@@ -144,7 +142,7 @@ build/head-node
 
 `build/nodes` lists all allocated hosts. The **last** host is the controller (`build/controller`; `build/head-node` is the same value). The other hosts are replica nodes. For the full CloudLab experiment, `build/nodes` should contain 11 hosts.
 
-#### 3.1.3 Initialize the Nodes
+### 3.3 Initialize the Nodes
 
 Wait until all allocated nodes accept SSH:
 
@@ -160,7 +158,7 @@ python cloudlab/wait_bootstrap.py
 
 The bootstrap succeeds only if every node creates `/local/bootstrap.done`. If any node creates `/local/bootstrap.failed`, check `/local/bootstrap.log` on that node.
 
-#### 3.1.4 Deploy the Artifact
+### 3.4 Deploy the Artifact
 
 Deploy is driven by the controller (the last host in `build/nodes`). One command does both Getting Started and the CloudLab remote functional test:
 
@@ -183,7 +181,7 @@ Deploy succeeds if it ends with:
 
 After this command succeeds, the cluster is ready for the paper experiments below.
 
-#### 3.1.5 Terminate the Experiment
+### 3.5 Terminate the Experiment
 
 When all experiments are finished, terminate the CloudLab experiment to stop using the machines:
 
@@ -306,11 +304,10 @@ Each command succeeds if the corresponding PDF is created and the script prints 
 
 ### E5: Resource Utilization — Table 2
 
-## 4. Regenerating Figures from the Paper Data
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
-### 5.1 **No available physical nodes of type <c6220> found.**
+### 6.1 **No available physical nodes of type <c6220> found.**
 
 Due to limited resources of C6220 machines, sometimes we cannot generate experiment with enough nodes. 
 
