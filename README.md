@@ -191,6 +191,86 @@ When all experiments are finished, terminate the CloudLab experiment to stop usi
 python cloudlab/portal_experiment.py terminate
 ```
 
+## 4. Regenerating Figures from the Paper Data
+
+### 4.1 Experiment 1
+
+### 4.2 Experiment 2
+
+Plotting code for Experiment 2 lives in `paper_data/graph_generated_code/experiment2/`. Shared helpers (do not run directly):
+
+- `paper_figure_save.py` — figure-saving helper (tight layout / aspect ratio)
+- `plot_latency_y_axis.py` — y-axis helper (linear / log latency scales)
+
+Paper data is under `paper_data/original_data/`. Regenerated figures go to `results/regenerate_graphs/`.
+
+#### Figure 10(a)
+
+Mean consensus latency vs $\kappa$ for each $(\sigma, \mathrm{ref})$ series. Latencies are read from `paper_data/original_data/10a_10b/consensus_summary.csv` and averaged over runs with the same $(\sigma, \kappa, \mathrm{ref})$.
+
+```bash
+cd paper_data/graph_generated_code/experiment2
+python3 plot_latency_by_kappa_sigma_reference.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/latency_by_kappa_sigma_reference.pdf
+```
+
+#### Figure 10(b)
+
+Mean consensus latency vs reference for $\kappa=2$, comparing $\sigma=1$ and $\sigma=2$. Same summary CSV and multi-run averaging as Figure 10(a).
+
+```bash
+cd paper_data/graph_generated_code/experiment2
+python3 plot_reference_impact_kappa2_by_sigma.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/reference_impact_kappa2_by_sigma.pdf
+```
+
+#### Figure 10(c)
+
+Attack-window latency timeseries overlay from `paper_data/original_data/10c/`.
+
+Main script: `plot_attack_latency_timeseries.py` (imports the shared helpers above).
+
+```bash
+cd paper_data/graph_generated_code/experiment2
+
+python3 plot_attack_latency_timeseries.py \
+  --merge-four-runs \
+    ../../original_data/10c/20260419_092353_560935_cloudlab-n10-r100000-run1-s1-k2-ref4-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/10c/20260419_123518_715243_cloudlab-n10-r100000-run1-s1-k2-ref7-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/10c/20260419_092900_079578_cloudlab-n10-r100000-run1-s1-k3-ref7-tag-experiment2_attack_final_latency.csv \
+    ../../original_data/10c/20260419_093137_848886_cloudlab-n10-r100000-run1-s1-k3-ref10-tag-experiment2_attack_final_latency.csv \
+  --time-axis commit \
+  --rolling-stat mean \
+  --attack-start-secs 60 \
+  --attack-end-secs 120 \
+  --output ../../../results/regenerate_graphs/attack_latency_timeseries_overlay_mean.pdf
+```
+
+Output:
+
+```text
+results/regenerate_graphs/attack_latency_timeseries_overlay_mean.pdf
+```
+
+Each command succeeds if the corresponding PDF is created and the script prints the output path.
+
+### 4.3 Experiment 3
+
+### 4.4 Experiment 4
+
+
+
+## 5. 
 
 ### E1: Impact of Heterogeneity — Figure 9
 
