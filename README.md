@@ -1,5 +1,7 @@
 # MANTA: Unlocking DAG Flexibility in Asynchronous BFT -- NSDI'27 Artifact
 
+## 1. Introduction
+
 This repository contains the artifact for the paper:
 
 > **MANTA: Unlocking DAG Flexibility in Asynchronous BFT**
@@ -7,21 +9,6 @@ This repository contains the artifact for the paper:
 The artifact includes the Manta implementation, a scalability-oriented Manta implementation, and the Tusk, DAG-Rider, Mahi-Mahi, and Chitu baselines used in the paper.
 
 Each implementation is maintained in a separate Git branch. This `artifact-evaluation` branch contains the evaluation instructions, experiment configurations, orchestration scripts, and paper results.
-
-## 1. Artifact Overview
-
-
-| Protocols      | Branch                   | Role                                           |
-| -------------- | ------------------------ | ---------------------------------------------- |
-| Manta          | `manta`                  | Main implementation                            |
-| Manta-Scalable | `manta-scalable-version` | Implementation used for large-scale evaluation |
-| Tusk/DAG-Rider | `tusk`                   | Baseline                                       |
-| Mahi-Mahi      | `mahi-mahi`              | Baseline                                       |
-| Chitu          | `chitu`                  | Baseline                                       |
-
-
-The exact commits used by the artifact are recorded in
-`[branches.yaml](branches.yaml)`.
 
 ## 2. Getting Started and Functional Validation
 
@@ -192,6 +179,47 @@ python cloudlab/portal_experiment.py terminate
 ## 4. Regenerating Figures from the Paper Data
 
 ### 4.1 Experiment 1
+
+Plotting code for Experiment 1 lives in `paper_data/graph_generated_code/experiment1/`:
+
+- `plot_workload_grouped_network_metrics_decouple_100k_consensus.py`
+- `plot_workload_grouped_network_metrics_tusk_coupled_60k_consensus.py`
+
+Paper data is under `paper_data/original_data/Figure9a/` and `paper_data/original_data/Figure9b/`
+(flat run summary `*.txt` files named `{network}_{workload}_{timestamp}_n{nodes}_r{rate}_run{run}.txt`).
+Regenerated figures go to `results/regenerate_graphs/`.
+
+#### Figure 9(a)
+
+Workload-grouped consensus latency and throughput for the **decoupled** architecture at $100{,}000$ tx/s offered load, comparing networks (80ms, geo) within each workload (balanced, custom-high-3, custom-high-5). Reads summary `*.txt` files from `paper_data/original_data/Figure9a/`.
+
+```bash
+cd paper_data/graph_generated_code/experiment1
+python3 plot_workload_grouped_network_metrics_decouple_100k_consensus.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/workload_grouped_network_metrics_decouple_100k_consensus.pdf
+```
+
+#### Figure 9(b)
+
+Workload-grouped consensus latency and throughput for the **Tusk coupled** architecture at $60{,}000$ tx/s offered load, using the same network/workload grouping as Figure 9(a). Reads summary `*.txt` files from `paper_data/original_data/Figure9b/`.
+
+```bash
+cd paper_data/graph_generated_code/experiment1
+python3 plot_workload_grouped_network_metrics_tusk_coupled_60k_consensus.py
+```
+
+Output:
+
+```text
+results/regenerate_graphs/workload_grouped_network_metrics_tusk_coupled_60k_consensus.pdf
+```
+
+Each command succeeds if the corresponding PDF is created and the script prints the output path.
 
 ### 4.2 Experiment 2
 
