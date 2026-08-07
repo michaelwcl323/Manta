@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from json import dump, load
 from collections import OrderedDict
 
@@ -41,7 +42,7 @@ class Committee:
         }
     '''
 
-    def __init__(self, addresses, base_port, sigma, kappa, reference, coverage):
+    def __init__(self, addresses, base_port, solid_step_length, solid_step_number, solid_reference):
         ''' The `addresses` field looks as follows:
             { 
                 "name": ["host", "host", ...],
@@ -62,10 +63,9 @@ class Committee:
         port = base_port
         self.json = {
             'authorities': OrderedDict(), 
-            'sigma': sigma,
-            'kappa': kappa,
-            'reference': reference,
-            'coverage': coverage,
+            'solid_step_length': solid_step_length,
+            'solid_step_number': solid_step_number,
+            'reference': solid_reference,
         }
         for name, hosts in addresses.items():
             host = hosts.pop(0)
@@ -157,13 +157,13 @@ class Committee:
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, port, workers, sigma, kappa, reference, coverage):
+    def __init__(self, names, port, workers, solid_step_length, solid_step_number, solid_reference):
         assert isinstance(names, list)
         assert all(isinstance(x, str) for x in names)
         assert isinstance(port, int)
         assert isinstance(workers, int) and workers > 0
         addresses = OrderedDict((x, ['127.0.0.1']*(1+workers)) for x in names)
-        super().__init__(addresses, port, sigma, kappa, reference, coverage)
+        super().__init__(addresses, port, solid_step_length, solid_step_number, solid_reference)
 
 
 class NodeParameters:
@@ -180,6 +180,9 @@ class NodeParameters:
         except KeyError as e:
             raise ConfigError(f'Malformed parameters: missing key {e}')
 
+        if 'max_header_batches' in json:
+            inputs += [json['max_header_batches']]
+
         if not all(isinstance(x, int) for x in inputs):
             raise ConfigError('Invalid parameters type')
 
@@ -194,19 +197,6 @@ class NodeParameters:
 class BenchParameters:
     def __init__(self, json):
         try:
-            def parse_tag(name):
-                value = json.get(name)
-                if value is None:
-                    return None
-                value = str(value).strip()
-                if not value:
-                    return None
-                if '/' in value or '\\' in value:
-                    raise ConfigError(
-                        f'Invalid {name}: path separators are not allowed'
-                    )
-                return value
-
             self.faults = int(json['faults'])
 
             nodes = json['nodes']
@@ -223,6 +213,11 @@ class BenchParameters:
 
             self.rate_type = str(json['rate_type']) if 'rate_type' in json else 'balanced'
 
+            # Optional parameters for specific rate types
+            self.extreme_x = int(json['extreme_x']) if 'extreme_x' in json else None
+            self.extra_rate = int(json['extra_rate']) if 'extra_rate' in json else None
+            self.percentages = json['percentages'] if 'percentages' in json else None
+
             self.workers = int(json['workers'])
 
             if 'collocate' in json:
@@ -235,8 +230,6 @@ class BenchParameters:
             self.duration = int(json['duration'])
 
             self.runs = int(json['runs']) if 'runs' in json else 1
-            self.design_tag = parse_tag('design_tag')
-            self.network_tag = parse_tag('network_tag')
         except KeyError as e:
             raise ConfigError(f'Malformed bench parameters: missing key {e}')
 

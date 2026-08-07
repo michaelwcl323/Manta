@@ -1,8 +1,8 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use crate::helper::Helper;
 use crate::primary_connector::PrimaryConnector;
 use crate::processor::{Processor, SerializedBatchMessage};
-use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -136,7 +136,6 @@ impl Worker {
     /// Spawn all tasks responsible to handle clients transactions.
     fn handle_clients_transactions(&self, tx_primary: Sender<SerializedBatchDigestMessage>) {
         let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
-        let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
 
         // We first receive clients' transactions from the network.
@@ -151,29 +150,14 @@ impl Worker {
             /* handler */ TxReceiverHandler { tx_batch_maker },
         );
 
-        // The transactions are sent to the `BatchMaker` that assembles them into batches. It then broadcasts
-        // (in a reliable manner) the batches to all other workers that share the same `id` as us. Finally, it
-        // gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
+        // The transactions are sent to the `BatchMaker` that assembles them into batches and forwards the
+        // serialized payload to the local processor. The payload is propagated across authorities only once,
+        // when the primary later embeds it in the header's `inline_payload`.
         BatchMaker::spawn(
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,
-            /* tx_message */ tx_quorum_waiter,
-            /* workers_addresses */
-            self.committee
-                .others_workers(&self.name, &self.id)
-                .iter()
-                .map(|(name, addresses)| (*name, addresses.worker_to_worker))
-                .collect(),
-        );
-
-        // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
-        // the batch to the `Processor`.
-        QuorumWaiter::spawn(
-            self.committee.clone(),
-            /* stake */ self.committee.stake(&self.name),
-            /* rx_message */ rx_quorum_waiter,
-            /* tx_batch */ tx_processor,
+            /* tx_message */ tx_processor,
         );
 
         // The `Processor` hashes and stores the batch. It then forwards the batch's digest to the `PrimaryConnector`

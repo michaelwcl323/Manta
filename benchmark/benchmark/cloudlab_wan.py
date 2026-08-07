@@ -1,27 +1,39 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab WAN — symmetric RTT emulation between logical sites using tc netem.
 
 Matrix values are round-trip times (ms). Each host adds one-way delay RTT/2 on
 marked egress to peers (symmetric path).
 
-Default site from 10.{octet}.* (override with host field wan_site or cloudlab_wan.octet2_site):
+Sites can be inferred from 10.{octet}.* (via cloudlab_wan.octet2_site) or
+explicitly assigned per host with the host field wan_site. Site names are free
+form and normalized to lowercase_with_underscores.
+
+Legacy default site mapping:
 
     10.1.x.x -> europe
     10.2.x.x -> north_america
     10.3.x.x -> asia
     10.4.x.x -> asia
 
-Default RTT table (ms), symmetric:
+Legacy default RTT table (ms), symmetric:
     Europe–Europe 20, NA–NA 20, Asia–Asia 0
     Europe–NA 90, Europe–Asia 200, NA–Asia 120
+
+For multi-site layouts that reuse the same 10.x subnet, set host-level wan_site in
+cloudlab_settings.json. This file also ships five-site fallback RTT defaults for:
+    ohio, singapore, tokyo, canada, frankfurt
 
 Requires: sudo, tc (sch_htb sch_netem), iptables mangle. TCP/22 is excluded from delay.
 
 Optional cloudlab_settings.json:
 
     "cloudlab_wan": {
-        "octet2_site": {"1": "europe", "2": "north_america", "3": "asia", "4": "asia"},
-        "rtt_ms": {"europe,north_america": 90}
+        "rtt_ms": {"ohio,singapore": 220, "tokyo,frankfurt": 200},
+        "hosts": [
+            {"hostname": "10.1.1.1", "wan_site": "ohio"},
+            {"hostname": "10.1.1.3", "wan_site": "singapore"}
+        ]
     }
 """
 
@@ -41,8 +53,6 @@ from paramiko.ssh_exception import PasswordRequiredException, SSHException
 from benchmark.cloudlab_instance import CloudLabInstanceManager
 from benchmark.utils import Print, BenchError
 
-WAN_SITES = ('europe', 'north_america', 'asia')
-
 DEFAULT_RTT_RULES: dict[str, int] = {
     'europe,europe': 20,
     'europe,north_america': 90,
@@ -50,6 +60,21 @@ DEFAULT_RTT_RULES: dict[str, int] = {
     'north_america,north_america': 20,
     'north_america,asia': 120,
     'asia,asia': 0,
+    'ohio,ohio': 2,
+    'singapore,singapore': 2,
+    'tokyo,tokyo': 2,
+    'canada,canada': 2,
+    'frankfurt,frankfurt': 2,
+    'ohio,singapore': 220,
+    'ohio,tokyo': 150,
+    'ohio,canada': 40,
+    'ohio,frankfurt': 90,
+    'singapore,tokyo': 70,
+    'singapore,canada': 210,
+    'singapore,frankfurt': 160,
+    'tokyo,canada': 160,
+    'tokyo,frankfurt': 200,
+    'canada,frankfurt': 100,
 }
 
 DEFAULT_OCTET2_SITE = {'1': 'europe', '2': 'north_america', '3': 'asia', '4': 'asia'}
@@ -249,15 +274,27 @@ def _host_ipv4(hostname: str) -> str:
     return host
 
 
+def _normalize_site(site: str) -> str:
+    s = str(site).strip().lower().replace('-', '_').replace(' ', '_')
+    if s == 'northamerica':
+        s = 'north_america'
+    if not s:
+        raise BenchError('WAN site name cannot be empty', ValueError(site))
+    return s
+
+
 def _parse_rtt_matrix(raw: dict | None) -> dict[tuple[str, str], int]:
     rules = dict(DEFAULT_RTT_RULES)
     if raw:
         for k, v in raw.items():
             if isinstance(k, str) and ',' in k:
                 a, b = k.split(',', 1)
-                a, b = a.strip(), b.strip()
-                rules[f'{a},{b}'] = int(v)
-                rules[f'{b},{a}'] = int(v)
+                a, b = _normalize_site(a), _normalize_site(b)
+                ms = int(v)
+                if ms < 0:
+                    raise BenchError(f'RTT must be non-negative for {a!r} <-> {b!r}', ValueError(ms))
+                rules[f'{a},{b}'] = ms
+                rules[f'{b},{a}'] = ms
     out: dict[tuple[str, str], int] = {}
     for key, ms in rules.items():
         a, b = key.split(',')
@@ -267,12 +304,7 @@ def _parse_rtt_matrix(raw: dict | None) -> dict[tuple[str, str], int]:
 
 def _site_for_ip(ip: str, octet2_site: dict[str, str], host_override: str | None) -> str:
     if host_override:
-        s = str(host_override).strip().lower().replace('-', '_')
-        if s == 'northamerica':
-            s = 'north_america'
-        if s not in WAN_SITES:
-            raise BenchError(f'Invalid wan_site {host_override!r}; use one of {WAN_SITES}', ValueError(s))
-        return s
+        return _normalize_site(host_override)
     parts = ip.split('.')
     if len(parts) != 4:
         raise BenchError(f'Cannot infer WAN site for {ip!r}', ValueError(ip))
@@ -282,10 +314,7 @@ def _site_for_ip(ip: str, octet2_site: dict[str, str], host_override: str | None
             f'No WAN site for 10.{oct2}.*.*; set cloudlab_wan.octet2_site or host wan_site',
             ValueError(oct2),
         )
-    site = octet2_site[oct2]
-    if site not in WAN_SITES:
-        raise BenchError(f'Invalid site {site!r} in octet2_site map', ValueError(site))
-    return site
+    return _normalize_site(octet2_site[oct2])
 
 
 def _group_hosts(host_info: list[dict]):
@@ -327,6 +356,13 @@ def _build_plan(
             peers.append({'ip': other['ip'], 'owd_ms': owd})
         plan[ip] = {'site': site, 'peers': peers}
     return plan
+
+
+def _site_members(plan: dict[str, dict]) -> dict[str, list[str]]:
+    members: dict[str, list[str]] = {}
+    for ip, data in sorted(plan.items()):
+        members.setdefault(data['site'], []).append(ip)
+    return members
 
 
 def _remote_setup_shell(b64_payload: str) -> str:
@@ -387,10 +423,7 @@ class CloudLabWan:
         m = dict(DEFAULT_OCTET2_SITE)
         raw = (self._wan_cfg.get('octet2_site') or {}) if isinstance(self._wan_cfg, dict) else {}
         for k, v in raw.items():
-            sv = str(v).lower().replace('-', '_')
-            if sv == 'northamerica':
-                sv = 'north_america'
-            m[str(k)] = sv
+            m[str(k)] = _normalize_site(v)
         return m
 
     def _rtt_map(self) -> dict[tuple[str, str], int]:
@@ -404,17 +437,20 @@ class CloudLabWan:
         oct2 = self._octet2_site()
         rtt_map = self._rtt_map()
         plan = _build_plan(host_info, oct2, rtt_map)
+        sites = sorted({entry['site'] for entry in plan.values()})
+        members = _site_members(plan)
 
         Print.heading('CloudLab WAN: tc netem (symmetric RTT/2 per hop)')
         Print.info(f'octet2_site map: {oct2}')
-        Print.info(
-            'RTT samples (ms): EU-NA=%s EU-AS=%s NA-AS=%s'
-            % (
-                rtt_map.get(('europe', 'north_america')),
-                rtt_map.get(('europe', 'asia')),
-                rtt_map.get(('north_america', 'asia')),
-            )
-        )
+        Print.info(f'sites: {sites}')
+        for site in sites:
+            Print.info(f'site {site}: {", ".join(members[site])}')
+        for i, left in enumerate(sites):
+            for right in sites[i:]:
+                rtt = rtt_map.get((left, right))
+                if rtt is None:
+                    rtt = rtt_map.get((right, left))
+                Print.info(f'rtt_ms {left}<->{right}: {rtt}')
 
         conn_kw = self._conn_kwargs()
         for (username, port), hosts in _group_hosts(host_info).items():

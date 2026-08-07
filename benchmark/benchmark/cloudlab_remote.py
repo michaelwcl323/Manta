@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab Remote Benchmark
 
@@ -13,16 +14,84 @@ from paramiko.ssh_exception import PasswordRequiredException, SSHException
 from time import sleep
 from math import ceil
 from copy import deepcopy
+import json
+import os
 import subprocess
 import re
 import shlex
+import sys
 
 from benchmark.config import Committee, Key, NodeParameters, BenchParameters, ConfigError
-from benchmark.utils import BenchError, Print, PathMaker, write_failure_summary
+from benchmark.utils import BenchError, Print, PathMaker
 from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from benchmark.cloudlab_instance import CloudLabInstanceManager
-from benchmark.imbalanced_rate import ZipfAllocator
+from benchmark.imbalanced_rate import ZipfAllocator, ExtremeAllocator, ParetoAllocator, TwoHeavyAllocator, ExtremeXAllocator, CustomAllocator
+
+
+def _aggregate_worker_rates_by_node(worker_rates, workers_per_node, num_nodes):
+    node_rates = []
+    index = 0
+    for _ in range(num_nodes):
+        node_rates.append(sum(worker_rates[index:index + workers_per_node]))
+        index += workers_per_node
+    return node_rates
+
+
+def _build_workload_details(rate, num_nodes, workers_per_node, bench_parameters, node_parameters):
+    rate_type = bench_parameters.rate_type
+    workers_total = num_nodes * workers_per_node
+    details = {'rate_type': rate_type}
+
+    if rate_type == 'balanced':
+        worker_rate = ceil(rate / workers_total)
+        worker_rates = [worker_rate] * workers_total
+        details['worker_rates'] = worker_rates
+        details['node_rates'] = _aggregate_worker_rates_by_node(
+            worker_rates,
+            workers_per_node,
+            num_nodes,
+        )
+    elif rate_type in ('imbalanced', 'imbalance'):
+        s = node_parameters.json.get('s')
+        worker_rates = ZipfAllocator(rate, workers_total, float(s)).allocate()
+        details['zipf_s'] = s
+        details['worker_rates'] = worker_rates
+        details['node_rates'] = _aggregate_worker_rates_by_node(
+            worker_rates,
+            workers_per_node,
+            num_nodes,
+        )
+    elif rate_type == 'extreme':
+        details['node_rates'] = ExtremeAllocator(rate, num_nodes).allocate()
+    elif rate_type == 'extreme_x':
+        x = getattr(bench_parameters, 'extreme_x', None)
+        details['extreme_x'] = x
+        details['node_rates'] = ExtremeXAllocator(rate, num_nodes, x).allocate()
+    elif rate_type == 'pareto':
+        details['node_rates'] = ParetoAllocator(rate, num_nodes).allocate()
+    elif rate_type == 'twoheavy':
+        details['node_rates'] = TwoHeavyAllocator(rate, num_nodes).allocate()
+    elif rate_type == 'custom':
+        percentages = getattr(bench_parameters, 'percentages', None)
+        if percentages is None:
+            raise BenchError(
+                'rate_type=custom requires bench parameter "percentages"',
+                ConfigError('missing percentages'),
+            )
+        extra_rate = getattr(bench_parameters, 'extra_rate', None)
+        allocator = CustomAllocator(rate, extra_rate, num_nodes, percentages)
+        details['custom_mode'] = allocator.mode
+        details['percentages_raw'] = percentages
+        details['percentages_normalized'] = allocator.percentages
+        details['base_total_rate'] = allocator.base_total_tps
+        details['extra_rate_total'] = allocator.extra_tps
+        details['effective_total_rate'] = allocator.total_tps
+        details['base_node_rates'] = allocator.base_node_rates
+        details['percentage_node_rates'] = allocator.extra_node_rates
+        details['node_rates'] = allocator.allocate()
+
+    return details
 
 
 class FabricError(Exception):
@@ -187,7 +256,7 @@ class CloudLabBench:
             'sudo apt-get install -y libclang-dev',
             'sudo apt-get update',
             'sudo apt-get install -y iproute2',
-            'sudo apt-get install -y python3-pip',
+            'sudo apt-get install -y python3-pip python3-venv',
             # Keep baseline build deps for benchmark compilation.
             'sudo apt-get install -y build-essential cmake clang',
             'source $HOME/.cargo/env',
@@ -200,7 +269,9 @@ class CloudLabBench:
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.bashrc',
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.profile',
             f'(git clone {self.settings.repo_url} || (cd {self.settings.repo_name} ; git pull))',
-            f'cd {self.settings.repo_name}/benchmark && pip3 install -r requirements.txt'
+            f'cd {self.settings.repo_name}/benchmark && python3 -m venv .venv',
+            f'cd {self.settings.repo_name}/benchmark && .venv/bin/pip install --upgrade pip',
+            f'cd {self.settings.repo_name}/benchmark && .venv/bin/pip install -r requirements.txt'
         ]
         
         try:
@@ -677,22 +748,11 @@ class CloudLabBench:
             'rm -rf "$HOME/.rustup" "$HOME/.cargo"; '
             'curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable; '
             'fi',
-            # Ensure rustup/cargo are on PATH in the current shell (no subshell).
-            'if [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi; export PATH="$HOME/.cargo/bin:$PATH"',
-            'command -v rustup >/dev/null 2>&1 || (echo "rustup not found after setup" && exit 1)',
-            'command -v cargo >/dev/null 2>&1 || (echo "cargo not found after setup" && exit 1)',
-            'rustup toolchain install stable',
-            'rustup default stable',
+            # Source cargo environment before building
+            'source $HOME/.cargo/env || export PATH=$HOME/.cargo/bin:$PATH',
+            'rustup toolchain install stable || true',
+            'rustup default stable || true',
             'rustup component add cargo rustc rust-std || true',
-            # Build prerequisites and diagnostics for common cc-rs failures.
-            'if ! command -v cc >/dev/null 2>&1; then '
-            'echo "C compiler not found; installing build-essential"; '
-            'sudo apt-get update && sudo apt-get install -y build-essential; '
-            'fi',
-            'echo "Pre-build diagnostics:"',
-            'df -h . || true',
-            'df -i . || true',
-            'cc --version || true',
             'cargo build --release --features benchmark',
             # Keep the node source directory intact; only ensure benchmark_client launcher exists.
             'rm -f benchmark_client 2>/dev/null || true',
@@ -961,22 +1021,20 @@ class CloudLabBench:
             )
             raise BenchError(error_msg, ValueError(error_msg))
         
-        sigma = node_parameters.json.get('sigma', 1)
-        kappa = node_parameters.json.get('kappa', 2)
-        reference = node_parameters.json.get('reference', 4)
-        coverage = node_parameters.json.get('coverage', 7)
+        solid_step_length = node_parameters.json.get('solid_step_length', 2)
+        solid_step_number = node_parameters.json.get('solid_step_number', 1)
+        solid_reference = node_parameters.json.get('reference', 3)
         committee = Committee(
             addresses,
             self.settings.base_port,
-            sigma,
-            kappa,
-            reference,
-            coverage,
+            solid_step_length,
+            solid_step_number,
+            solid_reference,
         )
         committee.print(PathMaker.committee_file())
-
-        node_parameters.print(PathMaker.parameters_file())
-
+        
+        node_parameters.print(PathMaker.parameters_file())  # 改为 print() 而不是 save()
+        
         # Upload files to all hosts
         repo_name = self.settings.repo_name
         files_to_upload = [
@@ -1043,8 +1101,7 @@ class CloudLabBench:
         
         return committee
     
-    def _logs(self, committee, faults, max_workers=1, total_rate=None,
-              tx_size=None, design_tag=None, network_tag=None):
+    def _logs(self, committee, faults, max_workers=1):
         """Download logs from all hosts using download_logs.py"""
         Print.info('Downloading logs...')
         
@@ -1057,20 +1114,7 @@ class CloudLabBench:
             Print.error('Falling back to basic log download...')
             # Fallback: create logs directory and return parser
             Path(PathMaker.logs_path()).mkdir(parents=True, exist_ok=True)
-            default_client_rates = None
-            if total_rate is not None:
-                worker_count = committee.workers()
-                if worker_count > 0:
-                    rate_share = ceil(total_rate / worker_count)
-                    default_client_rates = [rate_share] * worker_count
-            return LogParser.process(
-                PathMaker.logs_path(),
-                faults=faults,
-                default_client_size=tx_size,
-                default_client_rates=default_client_rates,
-                design_tag=design_tag,
-                network_tag=network_tag,
-            )
+            return LogParser.process(PathMaker.logs_path(), faults=faults)
         
         # Run download_logs.py to download all logs
         try:
@@ -1090,50 +1134,48 @@ class CloudLabBench:
         except Exception as e:
             Print.warn(f'⚠ Failed to run download_logs.py: {e}')
             Print.warn('Logs may be incomplete')
-        
-        # After downloading logs, run processing script
+
+        # Parse and return logs
+        return LogParser.process(PathMaker.logs_path(), faults=faults)
+
+    def _process_logs_for_run(self, run_metadata):
+        """Generate summary/csv/pivot for the current run using its exact run context."""
+        benchmark_dir = Path(__file__).parent.parent
+        run_benchmark_script = benchmark_dir / 'run_cloudlab_benchmark.py'
+
+        if not run_benchmark_script.exists():
+            Print.warn(f'⚠ run_cloudlab_benchmark.py not found at {run_benchmark_script}')
+            return
+
+        Path(PathMaker.run_context_file()).write_text(json.dumps(run_metadata, indent=2) + '\n')
+
+        env = os.environ.copy()
+        env['NARWHAL_BENCH_RUN_ID'] = run_metadata['run_id']
+
         Print.info('=' * 60)
-        Print.info('Processing logs...')
+        Print.info(f"Processing logs for {run_metadata['run_id']}...")
         Print.info('=' * 60)
-        
         try:
-            run_benchmark_script = benchmark_dir / 'run_cloudlab_benchmark.py'
-            
-            if run_benchmark_script.exists():
-                Print.info('Running run_cloudlab_benchmark.py --no-run to process logs...')
-                result = subprocess.run(
-                    [sys.executable, str(run_benchmark_script), '--no-run'],
-                    cwd=str(benchmark_dir),
-                    capture_output=False,  # Show output in real-time
-                    text=True
-                )
-                if result.returncode == 0:
-                    Print.info('✓ run_cloudlab_benchmark.py --no-run completed successfully')
-                else:
-                    Print.warn(f'⚠ run_cloudlab_benchmark.py --no-run exited with code {result.returncode}')
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(run_benchmark_script),
+                    '--no-run',
+                    '--num-nodes',
+                    str(run_metadata['nodes']),
+                ],
+                cwd=str(benchmark_dir),
+                env=env,
+                capture_output=False,
+                text=True,
+            )
+            if result.returncode == 0:
+                Print.info('✓ run_cloudlab_benchmark.py --no-run completed successfully')
             else:
-                Print.warn(f'⚠ run_cloudlab_benchmark.py not found at {run_benchmark_script}')
+                Print.warn(f'⚠ run_cloudlab_benchmark.py --no-run exited with code {result.returncode}')
         except Exception as e:
             Print.warn(f'⚠ Failed to run run_cloudlab_benchmark.py --no-run: {e}')
-        
         Print.info('=' * 60)
-        
-        # Parse and return logs. If clients failed to start, recover a summary
-        # from the configured client size/rate values.
-        default_client_rates = None
-        if total_rate is not None:
-            worker_count = committee.workers()
-            if worker_count > 0:
-                rate_share = ceil(total_rate / worker_count)
-                default_client_rates = [rate_share] * worker_count
-        return LogParser.process(
-            PathMaker.logs_path(),
-            faults=faults,
-            default_client_size=tx_size,
-            default_client_rates=default_client_rates,
-            design_tag=design_tag,
-            network_tag=network_tag,
-        )
     
     def _background_run(self, host_info, command, log_file):
         """Run a command in the background using nohup on a remote host"""
@@ -1401,9 +1443,28 @@ SCRIPTEOF'''
         #    This mirrors benchmark/benchmark/remote.py::_run_single
         Print.info('Booting clients...')
         workers_total = committee.workers()
+        num_nodes = len(workers_addresses)
+        
         if bench_parameters.rate_type == 'balanced':
             rate_share = ceil(rate / workers_total)
             worker_rates = [rate_share] * workers_total
+            worker_index = 0
+            for i, addresses in enumerate(workers_addresses):
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    client_rate = worker_rates[min(worker_index, len(worker_rates) - 1)]
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        client_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+                    worker_index += 1
         elif bench_parameters.rate_type in ('imbalanced', 'imbalance'):
             s = node_parameters.json.get('s')
             if s is None:
@@ -1416,30 +1477,151 @@ SCRIPTEOF'''
             except Exception as e:
                 raise BenchError('Failed to allocate imbalanced client rates', e)
             Print.info(f'Client rates (Zipf, s={s}): {worker_rates}')
+            worker_index = 0
+            for i, addresses in enumerate(workers_addresses):
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    client_rate = worker_rates[min(worker_index, len(worker_rates) - 1)]
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        client_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+                    worker_index += 1
+        elif bench_parameters.rate_type == 'extreme':
+            # Extreme workload: allocate by nodes, then each node's workers share the node rate
+            try:
+                node_rates = ExtremeAllocator(rate, num_nodes).allocate()
+            except Exception as e:
+                raise BenchError('Failed to allocate extreme node rates', e)
+            Print.info(f'Node rates (Extreme: first node ~99%, others share the rest): {node_rates}')
+            for i, addresses in enumerate(workers_addresses):
+                node_rate = node_rates[i]
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    # Each worker in a node uses the same node rate (consistent with local.py)
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        node_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+        elif bench_parameters.rate_type == 'extreme_x':
+            # Extreme(x): first x nodes each get 20%, others share the rest (by nodes)
+            x = getattr(bench_parameters, 'extreme_x', None)
+            if x is None:
+                raise BenchError('rate_type=extreme_x requires bench parameter \"extreme_x\"', ConfigError('missing extreme_x'))
+            try:
+                node_rates = ExtremeXAllocator(rate, num_nodes, x).allocate()
+            except Exception as e:
+                raise BenchError('Failed to allocate extreme_x node rates', e)
+            Print.info(f'Node rates (ExtremeX x={x}): {node_rates}')
+            for i, addresses in enumerate(workers_addresses):
+                node_rate = node_rates[i]
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        node_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+        elif bench_parameters.rate_type == 'pareto':
+            # Pareto-style workload: top3 share 75%, others share 25% (by nodes)
+            try:
+                node_rates = ParetoAllocator(rate, num_nodes).allocate()
+            except Exception as e:
+                raise BenchError('Failed to allocate pareto node rates', e)
+            Print.info(f'Node rates (Pareto top3=75%, others=25%): {node_rates}')
+            for i, addresses in enumerate(workers_addresses):
+                node_rate = node_rates[i]
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        node_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+        elif bench_parameters.rate_type == 'twoheavy':
+            # Two-heavy workload: first two nodes share 70%, others share 30% (by nodes)
+            try:
+                node_rates = TwoHeavyAllocator(rate, num_nodes).allocate()
+            except Exception as e:
+                raise BenchError('Failed to allocate twoheavy node rates', e)
+            Print.info(f'Node rates (TwoHeavy first2=70%, others=30%): {node_rates}')
+            for i, addresses in enumerate(workers_addresses):
+                node_rate = node_rates[i]
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        node_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
+        elif bench_parameters.rate_type == 'custom':
+            # Custom workload: allocate based on specified percentages
+            percentages = getattr(bench_parameters, 'percentages', None)
+            extra_rate = getattr(bench_parameters, 'extra_rate', None)
+            if percentages is None:
+                raise BenchError('rate_type=custom requires bench parameter "percentages"', ConfigError('missing percentages'))
+            try:
+                allocator = CustomAllocator(rate, extra_rate, num_nodes, percentages)
+                node_rates = allocator.allocate()
+            except Exception as e:
+                raise BenchError('Failed to allocate custom node rates', e)
+            Print.info(
+                f'Node rates (Custom mode={allocator.mode}, base_total={allocator.base_total_tps}, '
+                f'extra_total={allocator.extra_tps}, percentages={percentages}): '
+                f'{node_rates}'
+            )
+            for i, addresses in enumerate(workers_addresses):
+                node_rate = node_rates[i]
+                for (id, address) in addresses:
+                    host_info = self._get_host_by_address(address, selected_hosts)
+                    if not host_info:
+                        Print.warn(f'Could not find host for address {address}')
+                        continue
+                    cmd = CommandMaker.run_client(
+                        address,
+                        bench_parameters.tx_size,
+                        node_rate,
+                        [x for y in workers_addresses for _, x in y]
+                    )
+                    log_file = PathMaker.client_log_file(i, id)
+                    self._background_run(host_info, cmd, log_file)
         else:
             raise BenchError(
-                f'Unknown rate_type "{bench_parameters.rate_type}" (expected "balanced" or "imbalanced")',
+                f'Unknown rate_type "{bench_parameters.rate_type}" (expected "balanced", "imbalanced", "extreme", "extreme_x", "pareto", "twoheavy", or "custom")',
                 ValueError('Invalid rate_type')
             )
-
-        worker_index = 0
-        for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
-                host_info = self._get_host_by_address(address, selected_hosts)
-                if not host_info:
-                    Print.warn(f'Could not find host for address {address}')
-                    continue
-
-                client_rate = worker_rates[min(worker_index, len(worker_rates) - 1)]
-                cmd = CommandMaker.run_client(
-                    address,
-                    bench_parameters.tx_size,
-                    client_rate,
-                    [x for y in workers_addresses for _, x in y]
-                )
-                log_file = PathMaker.client_log_file(i, id)
-                self._background_run(host_info, cmd, log_file)
-                worker_index += 1
 
         # 3. Run the primaries (except the faulty ones) – same order as Bench._run_single
         Print.info('Booting primaries...')
@@ -1534,6 +1716,13 @@ SCRIPTEOF'''
             node_parameters = NodeParameters(node_parameters_dict)
         except ConfigError as e:
             raise BenchError('Invalid nodes or bench parameters', e)
+
+        network_tag = bench_parameters_dict.get('network_tag', 'unknown_network')
+        workload_tag = bench_parameters_dict.get(
+            'workload_tag',
+            bench_parameters_dict.get('rate_type', 'unknown_workload'),
+        )
+        base_run_id = os.environ.get('NARWHAL_BENCH_RUN_ID') or PathMaker.run_id()
         
         # Select which hosts to use
         selected_hosts = self._select_hosts(bench_parameters)
@@ -1570,19 +1759,9 @@ SCRIPTEOF'''
                     
                     # Run benchmarks for this configuration
                     for run in range(bench_parameters.runs):
+                        run_id = f'{base_run_id}_n{n}_r{rate}_run{run + 1}'
                         attack_str = f", attack={'ON' if trigger_attack else 'OFF'}" if trigger_attack is not None else ""
                         Print.heading(f'\nRunning benchmark: nodes={n}, rate={rate}{attack_str}, run={run+1}/{bench_parameters.runs}')
-                        summary_file = PathMaker.summary_file(
-                            bench_parameters.faults,
-                            n,
-                            bench_parameters.workers,
-                            bench_parameters.collocate,
-                            rate,
-                            bench_parameters.tx_size,
-                            run + 1,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                        )
                         
                         try:
                             # Run the actual benchmark
@@ -1591,35 +1770,49 @@ SCRIPTEOF'''
                             )
                             
                             # Download and parse logs
-                            result = self._logs(
-                                committee_copy,
-                                bench_parameters.faults,
-                                max_workers=bench_parameters.workers,
-                                total_rate=rate,
-                                tx_size=bench_parameters.tx_size,
-                                design_tag=bench_parameters.design_tag,
-                                network_tag=bench_parameters.network_tag,
+                            result = self._logs(committee_copy, bench_parameters.faults, max_workers=bench_parameters.workers)
+                            summary_file = PathMaker.summary_file(network_tag, workload_tag, run_id)
+                            summary_path = Path(summary_file)
+                            summary_path.parent.mkdir(parents=True, exist_ok=True)
+                            summary_path.write_text(result.result())
+
+                            run_metadata = {
+                                'run_id': run_id,
+                                'network_tag': network_tag,
+                                'workload_tag': workload_tag,
+                                'faults': bench_parameters.faults,
+                                'nodes': n,
+                                'workers': bench_parameters.workers,
+                                'collocate': bench_parameters.collocate,
+                                'rate': rate,
+                                'rate_type': bench_parameters.rate_type,
+                                'tx_size': bench_parameters.tx_size,
+                                'duration': bench_parameters.duration,
+                                'run_index': run + 1,
+                                'runs_total': bench_parameters.runs,
+                                'node_parameters': node_parameters.json,
+                                'trigger_attack': trigger_attack,
+                                'extra_rate': getattr(bench_parameters, 'extra_rate', None),
+                                'percentages': getattr(bench_parameters, 'percentages', None),
+                                'extreme_x': getattr(bench_parameters, 'extreme_x', None),
+                                'workload_details': _build_workload_details(
+                                    rate,
+                                    n,
+                                    bench_parameters.workers,
+                                    bench_parameters,
+                                    node_parameters,
+                                ),
+                            }
+                            Path(PathMaker.run_context_file()).write_text(
+                                json.dumps(run_metadata, indent=2) + '\n'
                             )
-                            result.print(summary_file)
+                            self._process_logs_for_run(run_metadata)
+                            Print.info(f'Saved summary to: {summary_file}')
                         except (subprocess.SubprocessError, GroupException, ParseError) as e:
                             self.kill(hosts=selected_hosts)
                             if isinstance(e, GroupException):
                                 e = FabricError(e)
-                            write_failure_summary(
-                                summary_file,
-                                design_tag=bench_parameters.design_tag,
-                                network_tag=bench_parameters.network_tag,
-                                faults=bench_parameters.faults,
-                                nodes=n,
-                                workers=bench_parameters.workers,
-                                collocate=bench_parameters.collocate,
-                                rate=rate,
-                                tx_size=bench_parameters.tx_size,
-                                run=run + 1,
-                                error=str(e),
-                            )
                             Print.error(BenchError('Benchmark failed', e))
                             continue
         
         Print.heading('All benchmarks completed')
-

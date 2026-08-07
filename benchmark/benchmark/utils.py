@@ -1,7 +1,6 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from datetime import datetime
-from os import makedirs
 from os.path import join
-from os.path import dirname
 
 
 class BenchError(Exception):
@@ -14,10 +13,12 @@ class BenchError(Exception):
 
 class PathMaker:
     @staticmethod
-    def _tag_segment(value, default):
-        value = str(value).strip() if value is not None else ''
-        value = value.replace(' ', '_')
-        return value or default
+    def _sanitize_tag(value):
+        assert isinstance(value, str) and value.strip()
+        return ''.join(
+            ch if ch.isalnum() or ch in ('-', '_') else '_'
+            for ch in value.strip()
+        )
 
     @staticmethod
     def binary_path():
@@ -70,38 +71,95 @@ class PathMaker:
 
     @staticmethod
     def results_path():
-        return 'results'
+        return 'tusk_coupled'
 
     @staticmethod
-    def summary_path(design_tag=None, network_tag=None):
+    def result_file(faults, nodes, workers, collocate, rate, tx_size):
         return join(
-            PathMaker._tag_segment(design_tag, 'untagged_design'),
-            PathMaker._tag_segment(network_tag, 'untagged_network'),
+            PathMaker.results_path(),
+            f'bench-{faults}-{nodes}-{workers}-{collocate}-{rate}-{tx_size}.txt'
         )
 
     @staticmethod
-    def summary_file(
-        faults,
-        nodes,
-        workers,
-        collocate,
-        rate,
-        tx_size,
-        run,
-        design_tag=None,
-        network_tag=None,
-        timestamp=None,
-    ):
-        design_segment = PathMaker._tag_segment(design_tag, 'untagged_design')
-        network_segment = PathMaker._tag_segment(network_tag, 'untagged_network')
-        stamp = timestamp or datetime.now().strftime('%Y%m%d_%H%M%S')
+    def run_context_file():
+        return '.last_benchmark_context.json'
+
+    @staticmethod
+    def run_id():
+        return datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    @staticmethod
+    def tagged_prefix(network_tag, workload_tag):
+        return (
+            f'{PathMaker._sanitize_tag(network_tag)}_'
+            f'{PathMaker._sanitize_tag(workload_tag)}'
+        )
+
+    @staticmethod
+    def experiment_path(network_tag, workload_tag, run_id):
         return join(
-            PathMaker.summary_path(design_segment, network_segment),
-            (
-                f'summary_design-{design_segment}_network-{network_segment}'
-                f'_f{faults}_n{nodes}_w{workers}_c{collocate}'
-                f'_r{rate}_tx{tx_size}_run{run}_{stamp}.txt'
-            ),
+            PathMaker.results_path(),
+            PathMaker._sanitize_tag(network_tag),
+            PathMaker._sanitize_tag(workload_tag),
+            run_id,
+        )
+
+    @staticmethod
+    def summary_file(network_tag, workload_tag, run_id):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_summary.txt',
+        )
+
+    @staticmethod
+    def analysis_csv_file(network_tag, workload_tag, run_id, experiment_group=None):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        suffix = f'_exp{experiment_group}' if experiment_group is not None else ''
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_round_certificate_analysis{suffix}.csv',
+        )
+
+    @staticmethod
+    def pivot_csv_file(network_tag, workload_tag, run_id, experiment_group=None):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        suffix = f'_exp{experiment_group}' if experiment_group is not None else ''
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_round_end_time_pivot{suffix}.csv',
+        )
+
+    @staticmethod
+    def metadata_file(network_tag, workload_tag, run_id):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_metadata.json',
+        )
+
+    @staticmethod
+    def committee_snapshot_file(network_tag, workload_tag, run_id):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_committee.json',
+        )
+
+    @staticmethod
+    def settings_snapshot_file(network_tag, workload_tag, run_id):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_cloudlab_settings.json',
+        )
+
+    @staticmethod
+    def origin_mapping_file(network_tag, workload_tag, run_id):
+        prefix = PathMaker.tagged_prefix(network_tag, workload_tag)
+        return join(
+            PathMaker.experiment_path(network_tag, workload_tag, run_id),
+            f'{prefix}_origin_mapping.json',
         )
 
     @staticmethod
@@ -159,51 +217,6 @@ class Print:
         causes += [f'  {len(causes)}: {type(current_cause)}\n']
         causes += [f'  {len(causes)}: {current_cause}\n']
         print(f'Caused by: \n{"".join(causes)}\n')
-
-
-def write_failure_summary(
-    filename,
-    *,
-    design_tag,
-    network_tag,
-    faults,
-    nodes,
-    workers,
-    collocate,
-    rate,
-    tx_size,
-    run,
-    error,
-):
-    assert isinstance(filename, str)
-    parent = dirname(filename)
-    if parent:
-        makedirs(parent, exist_ok=True)
-
-    content = (
-        '\n'
-        '-----------------------------------------\n'
-        ' SUMMARY:\n'
-        '-----------------------------------------\n'
-        ' + CONFIG:\n'
-        f' Design tag: {design_tag or "N/A"}\n'
-        f' Network tag: {network_tag or "N/A"}\n'
-        f' Faults: {faults} node(s)\n'
-        f' Committee size: {nodes} node(s)\n'
-        f' Worker(s) per node: {workers} worker(s)\n'
-        f' Collocate primary and workers: {collocate}\n'
-        f' Input rate: {rate:,} tx/s\n'
-        f' Transaction size: {tx_size:,} B\n'
-        f' Run: {run}\n'
-        '\n'
-        ' + RESULTS:\n'
-        ' Status: FAILED\n'
-        f' Error: {error}\n'
-        '-----------------------------------------\n'
-    )
-
-    with open(filename, 'w') as f:
-        f.write(content)
 
 
 def progress_bar(iterable, prefix='', suffix='', decimals=1, length=30, fill='█', print_end='\r'):

@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, Vote};
 use bytes::Bytes;
 use config::{Authority, Committee, PrimaryAddresses, WorkerAddresses};
@@ -155,13 +156,13 @@ pub fn votes(header: &Header) -> Vec<Vote> {
 
 // Fixture
 pub fn certificate(header: &Header) -> Certificate {
-    Certificate {
-        header: header.clone(),
-        votes: votes(&header)
+    Certificate::new(
+        header,
+        votes(&header)
             .into_iter()
             .map(|x| (x.author, x.signature))
             .collect(),
-    }
+    )
 }
 
 // Fixture

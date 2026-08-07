@@ -1,0 +1,75 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: geo_uniform
+ Workload tag: custom-high-3opp
+ Rate type: custom
+ Workload percentages: [6, 6, 6, 6, 1, 1, 6, 6, 1, 1]
+ Workload base total rate: 10000 tx/s
+ Workload effective total rate: 10000 tx/s
+ Workload normalized shares: [15.00%, 15.00%, 15.00%, 15.00%, 2.50%, 2.50%, 15.00%, 15.00%, 2.50%, 2.50%]
+ Workload node rates (tx/s): [1500, 1500, 1500, 1500, 250, 250, 1500, 1500, 250, 250]
+ Workload base node rates (tx/s): [1500, 1500, 1500, 1500, 250, 250, 1500, 1500, 250, 250]
+ Workload percentage node rates (tx/s): [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 10,000 tx/s
+ Transaction size: 512 B
+ Execution time: 120 s
+
+ Header size: 1,000 B
+ Max header batches: 1 batch(es)
+ Max header delay: 3 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 5 ms
+
+ + RESULTS:
+ Consensus TPS: 7,929 tx/s
+ Consensus BPS: 4,059,768 B/s
+ Consensus latency: 1,857 ms
+
+ End-to-end TPS: 7,908 tx/s
+ End-to-end BPS: 4,048,747 B/s
+ End-to-end latency: 2,271 ms
+
+ + VERTEX STATS:
+ Vertex stats exclude warmup rounds before the first client started sending transactions.
+ Vertex samples observed: 3,610
+ Non-empty vertices: 3,597 / 3,610
+ Empty vertices: 13 / 3,610
+ Serialized vertex size (all): avg=173,901 B, p50=234,933 B, p90=311,029 B, min=397 B, max=787,541 B
+ Inlined workload bytes (all): avg=172,937 B, p50=234,072 B, p90=310,016 B, min=0 B, max=785,464 B
+ Serialized vertex size (non-empty only): avg=174,528 B, p50=234,933 B, p90=311,637 B, min=6,733 B, max=787,541 B
+ Inlined workload bytes (non-empty only): avg=173,562 B, p50=234,072 B, p90=310,548 B, min=6,252 B, max=785,464 B
+ Per-node comparison (size stats use non-empty vertices only):
+  primary-0.log: non_empty=359/361 (99.4%), avg_size=262,667 B, p50_size=274,021 B, p90_size=313,197 B, max_size=547,813 B, avg_workload=261,685 B, avg_entries=8, active_rounds=47-407
+  primary-1.log: non_empty=360/361 (99.7%), avg_size=262,162 B, p50_size=274,021 B, p90_size=313,197 B, max_size=391,549 B, avg_workload=261,175 B, avg_entries=8, active_rounds=47-407
+  primary-2.log: non_empty=360/361 (99.7%), avg_size=262,276 B, p50_size=274,021 B, p90_size=313,197 B, max_size=391,549 B, avg_workload=261,286 B, avg_entries=8, active_rounds=47-407
+  primary-3.log: non_empty=360/361 (99.7%), avg_size=262,161 B, p50_size=273,069 B, p90_size=313,197 B, max_size=547,989 B, avg_workload=261,175 B, avg_entries=8, active_rounds=47-407
+  primary-4.log: non_empty=360/361 (99.7%), avg_size=42,777 B, p50_size=44,701 B, p90_size=51,029 B, max_size=70,013 B, avg_workload=41,840 B, avg_entries=7, active_rounds=47-407
+  primary-5.log: non_empty=360/361 (99.7%), avg_size=42,825 B, p50_size=44,701 B, p90_size=51,029 B, max_size=63,773 B, avg_workload=41,892 B, avg_entries=7, active_rounds=47-407
+  primary-6.log: non_empty=360/361 (99.7%), avg_size=262,265 B, p50_size=266,741 B, p90_size=313,197 B, max_size=391,461 B, avg_workload=261,283 B, avg_entries=8, active_rounds=47-407
+  primary-7.log: non_empty=359/361 (99.4%), avg_size=262,672 B, p50_size=274,021 B, p90_size=313,197 B, max_size=787,541 B, avg_workload=261,685 B, avg_entries=8, active_rounds=46-406
+  primary-8.log: non_empty=359/361 (99.4%), avg_size=42,859 B, p50_size=44,701 B, p90_size=51,117 B, max_size=70,101 B, avg_workload=41,922 B, avg_entries=7, active_rounds=46-406
+  primary-9.log: non_empty=360/361 (99.7%), avg_size=42,740 B, p50_size=44,701 B, p90_size=51,029 B, max_size=76,341 B, avg_workload=41,805 B, avg_entries=7, active_rounds=46-406
+
+ + CERTIFICATE ORIGIN MAP:
+ Origin map saved in this experiment directory as committee/settings snapshots plus an origin_mapping JSON file.
+  node0: ip=10.10.1.1, region=utah, key_short=DJmzJr4GAnGQmGK5, key_full=DJmzJr4GAnGQmGK5cf/SuT5JCEQpfPDlZK4AjXtVAmU=
+  node1: ip=10.10.1.2, region=utah, key_short=QGm/kDZ0s62PNmE/, key_full=QGm/kDZ0s62PNmE/01EZXV4ydh+Owbz3WWu+0bIK3+c=
+  node2: ip=10.10.1.3, region=utah, key_short=OwaDZl+eKGdYN7yr, key_full=OwaDZl+eKGdYN7yr4CHlszNL8S1+cG9MnuEsdUxDEoI=
+  node3: ip=10.10.1.4, region=utah, key_short=M/RttRT+rOe9Lf8W, key_full=M/RttRT+rOe9Lf8WBkolonruc6qQZ4W2zMv+swBPoBo=
+  node4: ip=10.10.1.5, region=utah, key_short=neastnCpoq6KpjmC, key_full=neastnCpoq6KpjmCmEU8jFhRnDtlEmuCh0u3vcb4hjQ=
+  node5: ip=10.10.1.6, region=utah, key_short=IiLi9UQW1+ak/8h1, key_full=IiLi9UQW1+ak/8h1Qb+ryKTOFVpa1Biu/sh7AI6Du2c=
+  node6: ip=10.10.1.7, region=utah, key_short=3t5veGgHBsUUYO31, key_full=3t5veGgHBsUUYO31KAJ5PAgDtB0sLij9EK8ovrfDd4A=
+  node7: ip=10.10.1.8, region=utah, key_short=ZwpT04qt+yXC25jj, key_full=ZwpT04qt+yXC25jjoYIiyJAfcYenhfsvQIiCwrlMF9c=
+  node8: ip=10.10.1.9, region=utah, key_short=g1hRJB35lFUJxsiv, key_full=g1hRJB35lFUJxsivL1noQCJKpkvHpGWMULf4eKD6WgI=
+  node9: ip=10.10.1.10, region=utah, key_short=W1IDJNFmdlsiubPy, key_full=W1IDJNFmdlsiubPyS3ZsaKw9BJKOO3JGlr/e80f3K7Y=
+-----------------------------------------

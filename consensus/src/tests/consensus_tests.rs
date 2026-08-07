@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use config::{Authority, PrimaryAddresses};
 use crypto::{generate_keypair, SecretKey};
@@ -41,15 +42,13 @@ fn mock_certificate(
     round: Round,
     parents: BTreeSet<Digest>,
 ) -> (Digest, Certificate) {
-    let certificate = Certificate {
-        header: Header {
+    let header = Header {
             author: origin,
             round,
             parents,
             ..Header::default()
-        },
-        ..Certificate::default()
     };
+    let certificate = Certificate::new(&header, Vec::new());
     (certificate.digest(), certificate)
 }
 

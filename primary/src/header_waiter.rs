@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::Header;
 use crate::primary::{PrimaryMessage, PrimaryWorkerMessage, Round};
@@ -128,39 +129,27 @@ impl HeaderWaiter {
                 Some(message) = self.rx_synchronizer.recv() => {
                     match message {
                         WaiterMessage::SyncBatches(missing, header) => {
+                            debug!("Synching the payload of {}", header);
                             let header_id = header.id.clone();
                             let round = header.round;
                             let author = header.author;
-                            let missing_count = missing.len();
-                            debug!(
-                                "Synching the payload of header {} (round {}): missing {} batch(es)",
-                                header_id,
-                                round,
-                                missing_count
-                            );
 
                             // Ensure we sync only once per header.
                             if self.pending.contains_key(&header_id) {
-                                debug!(
-                                    "Header {} (round {}) already in pending, skipping duplicate sync request",
-                                    header_id,
-                                    round
-                                );
                                 continue;
                             }
 
                             // Add the header to the waiter pool. The waiter will return it to when all
                             // its parents are in the store.
-                            let wait_for: Vec<(Vec<u8>, Store)> = missing
+                            let wait_for = missing
                                 .iter()
                                 .map(|(digest, worker_id)| {
                                     let key = [digest.as_ref(), &worker_id.to_le_bytes()].concat();
                                     (key.to_vec(), self.store.clone())
                                 })
                                 .collect();
-                            let wait_for_count = wait_for.len();
                             let (tx_cancel, rx_cancel) = channel(1);
-                            self.pending.insert(header_id.clone(), (round, tx_cancel));
+                            self.pending.insert(header_id, (round, tx_cancel));
                             let fut = Self::waiter(wait_for, header, rx_cancel);
                             waiting.push(fut);
 
@@ -177,25 +166,11 @@ impl HeaderWaiter {
                                     .worker(&author, &worker_id)
                                     .expect("Author of valid header is not in the committee")
                                     .primary_to_worker;
-                                debug!(
-                                    "Sending batch sync request for header {} (round {}): requesting {} batch(es) from worker {} at {}",
-                                    header_id,
-                                    round,
-                                    digests.len(),
-                                    worker_id,
-                                    address
-                                );
                                 let message = PrimaryWorkerMessage::Synchronize(digests, author);
                                 let bytes = bincode::serialize(&message)
                                     .expect("Failed to serialize batch sync request");
                                 self.network.send(address, Bytes::from(bytes)).await;
                             }
-                            debug!(
-                                "Header {} (round {}) added to waiter pool, waiting for {} batch(es) to arrive",
-                                header_id,
-                                round,
-                                wait_for_count
-                            );
                         }
 
                         WaiterMessage::SyncParents(missing, header) => {
@@ -250,11 +225,6 @@ impl HeaderWaiter {
 
                 Some(result) = waiting.next() => match result {
                     Ok(Some(header)) => {
-                        debug!(
-                            "All batches received for header {} (round {}), sending back to Core for reprocessing",
-                            header.id,
-                            header.round
-                        );
                         let _ = self.pending.remove(&header.id);
                         for x in header.payload.keys() {
                             let _ = self.batch_requests.remove(x);
@@ -265,7 +235,7 @@ impl HeaderWaiter {
                         self.tx_core.send(header).await.expect("Failed to send header");
                     },
                     Ok(None) => {
-                        debug!("Header waiter request was canceled (likely due to GC)");
+                        // This request has been canceled.
                     },
                     Err(e) => {
                         error!("{}", e);
@@ -309,22 +279,10 @@ impl HeaderWaiter {
             if round > self.gc_depth {
                 let mut gc_round = round - self.gc_depth;
 
-                let mut canceled_count = 0;
-                for (header_id, (r, handler)) in &self.pending {
+                for (r, handler) in self.pending.values() {
                     if r <= &gc_round {
-                        debug!(
-                            "Canceling header waiter for header {} (round {}) due to GC (gc_round={}, consensus_round={})",
-                            header_id, r, gc_round, round
-                        );
                         let _ = handler.send(()).await;
-                        canceled_count += 1;
                     }
-                }
-                if canceled_count > 0 {
-                    debug!(
-                        "GC cleanup: canceled {} pending header waiter(s) for rounds <= {}",
-                        canceled_count, gc_round
-                    );
                 }
                 self.pending.retain(|_, (r, _)| r > &mut gc_round);
                 self.batch_requests.retain(|_, r| r > &mut gc_round);

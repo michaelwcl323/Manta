@@ -1,21 +1,23 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use log::debug;
 use std::collections::HashMap;
 use store::Store;
 use tokio::sync::mpsc::Sender;
+
+#[cfg(test)]
+#[path = "tests/synchronizer_tests.rs"]
+pub mod synchronizer_tests;
 
 /// The `Synchronizer` checks if we have all batches and parents referenced by a header. If we don't, it sends
 /// a command to the `Waiter` to request the missing data.
 pub struct Synchronizer {
     /// The public key of this primary.
     name: PublicKey,
-    /// Cached authority ordering to map to node ids in logs.
-    authorities: Vec<PublicKey>,
     /// The persistent storage.
     store: Store,
     /// Send commands to the `HeaderWaiter`.
@@ -34,10 +36,8 @@ impl Synchronizer {
         tx_header_waiter: Sender<WaiterMessage>,
         tx_certificate_waiter: Sender<Certificate>,
     ) -> Self {
-        let authorities = committee.authorities.keys().cloned().collect();
         Self {
             name,
-            authorities,
             store,
             tx_header_waiter,
             tx_certificate_waiter,
@@ -59,6 +59,15 @@ impl Synchronizer {
 
         let mut missing = HashMap::new();
         for (digest, worker_id) in header.payload.iter() {
+            if header
+                .inline_payload
+                .as_ref()
+                .and_then(|payload| payload.get(digest))
+                .is_some()
+            {
+                continue;
+            }
+
             // Check whether we have the batch. If one of our worker has the batch, the primary stores the pair
             // (digest, worker_id) in its own storage. It is important to verify that we received the batch
             // from the correct worker id to prevent the following attack:
@@ -114,39 +123,6 @@ impl Synchronizer {
             return Ok(parents);
         }
 
-        let mut missing_labels = Vec::with_capacity(missing.len());
-        for digest in &missing {
-            // Attempt to resolve if we already have it (best-effort).
-            if let Some(bytes) = self.store.read(digest.to_vec()).await? {
-                if let Ok(cert) = bincode::deserialize::<Certificate>(&bytes) {
-                    let node_id = self
-                        .authorities
-                        .iter()
-                        .position(|a| a == &cert.origin())
-                        .unwrap_or(999);
-                    let weak_prefix = if cert.round() + 1 < header.round {
-                        "w"
-                    } else {
-                        ""
-                    };
-                    missing_labels.push(format!(
-                        "{} [{}{},{}]",
-                        digest,
-                        weak_prefix,
-                        cert.round(),
-                        node_id
-                    ));
-                    continue;
-                }
-            }
-            missing_labels.push(format!("{}", digest));
-        }
-        debug!(
-            "Missing parent(s) for header {} (round {}): {}",
-            header.id,
-            header.round,
-            missing_labels.join(", ")
-        );
         self.tx_header_waiter
             .send(WaiterMessage::SyncParents(missing, header.clone()))
             .await

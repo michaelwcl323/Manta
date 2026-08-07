@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crypto::{generate_production_keypair, PublicKey, SecretKey};
 use log::info;
 use serde::de::DeserializeOwned;
@@ -62,6 +63,9 @@ pub struct Parameters {
     /// The preferred header size. The primary creates a new header when it has enough parents and
     /// enough batches' digests to reach `header_size`. Denominated in bytes.
     pub header_size: usize,
+    /// Optional batch-count trigger for header creation. When set, the primary creates a new
+    /// header once it has accumulated this many worker batches (subject to parent availability).
+    pub max_header_batches: Option<usize>,
     /// The maximum delay that the primary waits between generating two headers, even if the header
     /// did not reach `max_header_size`. Denominated in ms.
     pub max_header_delay: u64,
@@ -84,6 +88,7 @@ impl Default for Parameters {
     fn default() -> Self {
         Self {
             header_size: 1_000,
+            max_header_batches: None,
             max_header_delay: 100,
             gc_depth: 50,
             sync_retry_delay: 5_000,
@@ -99,6 +104,9 @@ impl Import for Parameters {}
 impl Parameters {
     pub fn log(&self) {
         info!("Header size set to {} B", self.header_size);
+        if let Some(max_header_batches) = self.max_header_batches {
+            info!("Max header batches set to {} batch(es)", max_header_batches);
+        }
         info!("Max header delay set to {} ms", self.max_header_delay);
         info!("Garbage collection depth set to {} rounds", self.gc_depth);
         info!("Sync retry delay set to {} ms", self.sync_retry_delay);
@@ -139,14 +147,6 @@ pub struct Authority {
 #[derive(Clone, Deserialize)]
 pub struct Committee {
     pub authorities: BTreeMap<PublicKey, Authority>,
-    /// The length of the solid step [r, r+sigma]
-    pub sigma: usize,
-    /// The number of solid steps in a wave
-    pub kappa: usize,
-    /// The reference parameter for the solid step.
-    pub reference: usize,
-    /// The coverage parameter for the solid step.
-    pub coverage: usize,
 }
 
 impl Import for Committee {}
@@ -177,19 +177,6 @@ impl Committee {
         // then (2 N + 3) / 3 = 2f + 1 + (2k + 2)/3 = 2f + 1 + k = N - f
         let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
         2 * total_votes / 3 + 1
-        // (total_votes + 2) / 3
-    }
-
-    pub fn processing_threshold(&self, current_round: u64) -> Stake {
-        // Apart from the quorum threshold, this is specially for processing headers.
-        let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
-        if self.is_solid_step(current_round) {
-            return self.coverage as Stake;
-            // return (total_votes + 2) / 3;
-        } else {
-            //
-            return self.reference as Stake;
-        }
     }
 
     /// Returns the stake required to reach availability (f+1).
@@ -198,10 +185,6 @@ impl Committee {
         // then (N + 2) / 3 = f + 1 + k/3 = f + 1
         let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
         (total_votes + 2) / 3
-    }
-
-    pub fn max_threshold(&self) -> Stake {
-        self.coverage as Stake
     }
 
     /// Returns the primary addresses of the target primary.
@@ -267,21 +250,6 @@ impl Committee {
                     .map(|(_, addresses)| (*name, addresses.clone()))
             })
             .collect()
-    }
-
-    /// Returns the number of the solid wave.
-    pub fn solid_wave_length(&self) -> u64 {
-        (self.sigma) as u64 * (self.kappa as u64)
-    }
-
-    /// Returns the length of the solid step.
-    pub fn solid_step_length(&self) -> u64 {
-        (self.sigma) as u64
-    }
-
-    /// Returns whether the provided round is the first round of a solid step.
-    pub fn is_solid_step(&self, round: u64) -> bool {
-        round > 1 && round % self.solid_step_length() == 0
     }
 }
 

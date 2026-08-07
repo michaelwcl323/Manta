@@ -1,0 +1,58 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: 80ms
+ Workload tag: balanced
+ Rate type: balanced
+ Workload base total rate: 20000 tx/s
+ Workload node rates (tx/s): [2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]
+ Workload worker/client rates (tx/s): [2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 20,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header batches: 1 batch(es)
+ Max header delay: 50 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 18,158 tx/s
+ Consensus BPS: 9,297,086 B/s
+ Consensus latency: 1,304 ms
+
+ End-to-end TPS: 18,142 tx/s
+ End-to-end BPS: 9,288,698 B/s
+ End-to-end latency: 1,455 ms
+
+ + VERTEX STATS:
+ Vertex stats exclude warmup rounds before the first client started sending transactions.
+ Vertex samples observed: 4,591
+ Non-empty vertices: 4,591 / 4,591
+ Empty vertices: 0 / 4,591
+ Serialized vertex size (all): avg=251,663 B, p50=260,845 B, p90=312,845 B, min=52,493 B, max=469,109 B
+ Inlined workload bytes (all): avg=250,904 B, p50=260,060 B, p90=312,060 B, min=52,012 B, max=468,096 B
+ Serialized vertex size (non-empty only): avg=251,663 B, p50=260,845 B, p90=312,845 B, min=52,493 B, max=469,109 B
+ Inlined workload bytes (non-empty only): avg=250,904 B, p50=260,060 B, p90=312,060 B, min=52,012 B, max=468,096 B
+ Per-node comparison (size stats use non-empty vertices only):
+  primary-0.log: non_empty=501/501 (100.0%), avg_size=251,577 B, p50_size=260,845 B, p90_size=311,285 B, max_size=435,309 B, avg_workload=250,818 B, avg_entries=5, active_rounds=56-556
+  primary-1.log: non_empty=501/501 (100.0%), avg_size=251,577 B, p50_size=260,845 B, p90_size=311,805 B, max_size=417,109 B, avg_workload=250,818 B, avg_entries=5, active_rounds=56-556
+  primary-2.log: non_empty=501/501 (100.0%), avg_size=251,681 B, p50_size=260,845 B, p90_size=311,805 B, max_size=417,109 B, avg_workload=250,922 B, avg_entries=5, active_rounds=56-556
+  primary-3.log: non_empty=501/501 (100.0%), avg_size=251,681 B, p50_size=260,845 B, p90_size=302,445 B, max_size=469,109 B, avg_workload=250,922 B, avg_entries=5, active_rounds=56-556
+  primary-4.log: non_empty=501/501 (100.0%), avg_size=251,681 B, p50_size=260,845 B, p90_size=312,845 B, max_size=417,109 B, avg_workload=250,922 B, avg_entries=5, active_rounds=56-556
+  primary-5.log: non_empty=501/501 (100.0%), avg_size=251,681 B, p50_size=260,845 B, p90_size=312,845 B, max_size=417,109 B, avg_workload=250,922 B, avg_entries=5, active_rounds=56-556
+  primary-6.log: non_empty=501/501 (100.0%), avg_size=251,473 B, p50_size=260,845 B, p90_size=296,725 B, max_size=417,021 B, avg_workload=250,714 B, avg_entries=5, active_rounds=56-556
+  primary-7.log: non_empty=501/501 (100.0%), avg_size=251,577 B, p50_size=260,845 B, p90_size=312,845 B, max_size=417,109 B, avg_workload=250,818 B, avg_entries=5, active_rounds=56-556
+  primary-8.log: non_empty=501/501 (100.0%), avg_size=251,576 B, p50_size=260,845 B, p90_size=312,845 B, max_size=417,109 B, avg_workload=250,818 B, avg_entries=5, active_rounds=56-556
+  primary-9.log: non_empty=82/82 (100.0%), avg_size=254,478 B, p50_size=260,845 B, p90_size=312,845 B, max_size=417,109 B, avg_workload=253,715 B, avg_entries=5, active_rounds=56-137
+-----------------------------------------

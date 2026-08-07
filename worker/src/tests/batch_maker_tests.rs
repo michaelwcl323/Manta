@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use crate::common::transaction;
 use tokio::sync::mpsc::channel;
@@ -6,7 +7,6 @@ use tokio::sync::mpsc::channel;
 async fn make_batch() {
     let (tx_transaction, rx_transaction) = channel(1);
     let (tx_message, mut rx_message) = channel(1);
-    let dummy_addresses = vec![(PublicKey::default(), "127.0.0.1:0".parse().unwrap())];
 
     // Spawn a `BatchMaker` instance.
     BatchMaker::spawn(
@@ -14,7 +14,6 @@ async fn make_batch() {
         /* max_batch_delay */ 1_000_000, // Ensure the timer is not triggered.
         rx_transaction,
         tx_message,
-        /* workers_addresses */ dummy_addresses,
     );
 
     // Send enough transactions to seal a batch.
@@ -23,7 +22,7 @@ async fn make_batch() {
 
     // Ensure the batch is as expected.
     let expected_batch = vec![transaction(), transaction()];
-    let QuorumWaiterMessage { batch, handlers: _ } = rx_message.recv().await.unwrap();
+    let batch = rx_message.recv().await.unwrap();
     match bincode::deserialize(&batch).unwrap() {
         WorkerMessage::Batch(batch) => assert_eq!(batch, expected_batch),
         _ => panic!("Unexpected message"),
@@ -34,7 +33,6 @@ async fn make_batch() {
 async fn batch_timeout() {
     let (tx_transaction, rx_transaction) = channel(1);
     let (tx_message, mut rx_message) = channel(1);
-    let dummy_addresses = vec![(PublicKey::default(), "127.0.0.1:0".parse().unwrap())];
 
     // Spawn a `BatchMaker` instance.
     BatchMaker::spawn(
@@ -42,7 +40,6 @@ async fn batch_timeout() {
         /* max_batch_delay */ 50, // Ensure the timer is triggered.
         rx_transaction,
         tx_message,
-        /* workers_addresses */ dummy_addresses,
     );
 
     // Do not send enough transactions to seal a batch..
@@ -50,7 +47,7 @@ async fn batch_timeout() {
 
     // Ensure the batch is as expected.
     let expected_batch = vec![transaction()];
-    let QuorumWaiterMessage { batch, handlers: _ } = rx_message.recv().await.unwrap();
+    let batch = rx_message.recv().await.unwrap();
     match bincode::deserialize(&batch).unwrap() {
         WorkerMessage::Batch(batch) => assert_eq!(batch, expected_batch),
         _ => panic!("Unexpected message"),

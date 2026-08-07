@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from os.path import join
 
 from benchmark.utils import PathMaker
@@ -56,17 +57,7 @@ class CommandMaker:
 
     @staticmethod
     def kill():
-        return (
-            'pkill -TERM -f "[b]enchmark_client" 2>/dev/null || true ; '
-            'pkill -TERM -f "[n]ode.*primary" 2>/dev/null || true ; '
-            'pkill -TERM -f "[n]ode.*worker" 2>/dev/null || true ; '
-            'sleep 2 ; '
-            'pkill -KILL -f "[b]enchmark_client" 2>/dev/null || true ; '
-            'pkill -KILL -f "[n]ode.*primary" 2>/dev/null || true ; '
-            'pkill -KILL -f "[n]ode.*worker" 2>/dev/null || true ; '
-            'tmux kill-server 2>/dev/null || true ; '
-            'sleep 1'
-        )
+        return 'tmux kill-server'
 
     @staticmethod
     def alias_binaries(origin):

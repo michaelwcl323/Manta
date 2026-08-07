@@ -1,5 +1,5 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
 from paramiko import RSAKey
@@ -11,7 +11,7 @@ from copy import deepcopy
 import subprocess
 
 from benchmark.config import Committee, Key, NodeParameters, BenchParameters, ConfigError
-from benchmark.utils import BenchError, Print, PathMaker, progress_bar, write_failure_summary
+from benchmark.utils import BenchError, Print, PathMaker, progress_bar
 from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from benchmark.instance import InstanceManager
@@ -36,7 +36,7 @@ class Bench:
         self.settings = self.manager.settings
         try:
             ctx.connect_kwargs.pkey = RSAKey.from_private_key_file(
-                self.manager.settings.key_path
+                self.settings.key_path
             )
             self.connect = ctx.connect_kwargs
         except (IOError, PasswordRequiredException, SSHException) as e:
@@ -54,18 +54,9 @@ class Bench:
     def install(self):
         Print.info('Installing rust and cloning the repo...')
         cmd = [
-            # Ubuntu cloud images: if systemd-resolved is stopped, 127.0.0.53 refuses DNS
-            # and apt/curl/git fail to resolve hosts — enable it before network use.
-            'if systemctl cat systemd-resolved.service >/dev/null 2>&1; then '
-            'systemctl is-active --quiet systemd-resolved || '
-            'sudo systemctl enable --now systemd-resolved; fi',
             'sudo apt-get update',
-            # EC2 images sometimes leave linux-aws meta packages half-configured; a full
-            # upgrade then fails until dependencies are reconciled (see apt message:
-            # "Try 'apt --fix-broken install'").
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y -f install',
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade',
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y autoremove',
+            'sudo apt-get -y upgrade',
+            'sudo apt-get -y autoremove',
 
             # The following dependencies prevent the error: [error: linker `cc` not found].
             'sudo apt-get -y install build-essential',
@@ -79,8 +70,8 @@ class Bench:
             # This is missing from the Rocksdb installer (needed for Rocksdb).
             'sudo apt-get install -y clang',
 
-            # Clone into the same directory name used by _update / compile (must match repo.name).
-            f'(git clone {self.settings.repo_url} {self.settings.repo_name} || (cd {self.settings.repo_name} && git pull))'
+            # Clone the repo.
+            f'(git clone {self.settings.repo_url} || (cd {self.settings.repo_name} ; git pull))'
         ]
         hosts = self.manager.hosts(flat=True)
         try:
@@ -145,21 +136,6 @@ class Bench:
         output = c.run(cmd, hide=True)
         self._check_stderr(output)
 
-    def _background_run_many(self, jobs):
-        assert isinstance(jobs, list)
-        if not jobs:
-            return
-
-        # Launch all commands for the same role concurrently to reduce skew
-        # between nodes while still keeping role ordering explicit.
-        with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
-            futures = [
-                executor.submit(self._background_run, host, command, log_file)
-                for host, command, log_file in jobs
-            ]
-            for future in futures:
-                future.result()
-
     def _update(self, hosts, collocate):
         if collocate:
             ips = list(set(hosts))
@@ -216,14 +192,15 @@ class Bench:
             addresses = OrderedDict(
                 (x, y) for x, y in zip(names, hosts)
             )
-        jp = node_parameters.json
+        solid_step_length = node_parameters.json.get('solid_step_length', 2)
+        solid_step_number = node_parameters.json.get('solid_step_number', 1)
+        solid_reference = node_parameters.json.get('reference', 3)
         committee = Committee(
             addresses,
             self.settings.base_port,
-            jp.get('sigma', 1),
-            jp.get('kappa', 2),
-            jp.get('reference', 4),
-            jp.get('coverage', 7),
+            solid_step_length,
+            solid_step_number,
+            solid_reference,
         )
         committee.print(PathMaker.committee_file())
 
@@ -249,10 +226,26 @@ class Bench:
         hosts = committee.ips()
         self.kill(hosts=hosts, delete_logs=True)
 
-        # Run the primaries first so workers and clients see fewer connection
-        # refusals during the startup phase.
+        # Run the clients (they will wait for the nodes to be ready).
+        # Filter all faulty nodes from the client addresses (or they will wait
+        # for the faulty nodes to be online).
+        Print.info('Booting clients...')
+        workers_addresses = committee.workers_addresses(faults)
+        rate_share = ceil(rate / committee.workers())
+        for i, addresses in enumerate(workers_addresses):
+            for (id, address) in addresses:
+                host = Committee.ip(address)
+                cmd = CommandMaker.run_client(
+                    address,
+                    bench_parameters.tx_size,
+                    rate_share,
+                    [x for y in workers_addresses for _, x in y]
+                )
+                log_file = PathMaker.client_log_file(i, id)
+                self._background_run(host, cmd, log_file)
+
+        # Run the primaries (except the faulty ones).
         Print.info('Booting primaries...')
-        primary_jobs = []
         for i, address in enumerate(committee.primary_addresses(faults)):
             host = Committee.ip(address)
             cmd = CommandMaker.run_primary(
@@ -263,13 +256,10 @@ class Bench:
                 debug=debug
             )
             log_file = PathMaker.primary_log_file(i)
-            primary_jobs.append((host, cmd, log_file))
-        self._background_run_many(primary_jobs)
+            self._background_run(host, cmd, log_file)
 
-        # Run the workers after all primaries have been started.
+        # Run the workers (except the faulty ones).
         Print.info('Booting workers...')
-        workers_addresses = committee.workers_addresses(faults)
-        worker_jobs = []
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
                 host = Committee.ip(address)
@@ -282,38 +272,15 @@ class Bench:
                     debug=debug
                 )
                 log_file = PathMaker.worker_log_file(i, id)
-                worker_jobs.append((host, cmd, log_file))
-        self._background_run_many(worker_jobs)
-
-        # Run the clients last. They still wait for nodes to be ready, but the
-        # role-level ordering avoids unnecessary startup skew.
-        Print.info('Booting clients...')
-        client_jobs = []
-        rate_share = ceil(rate / committee.workers())
-        all_workers = [x for y in workers_addresses for _, x in y]
-        for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
-                host = Committee.ip(address)
-                cmd = CommandMaker.run_client(
-                    address,
-                    bench_parameters.tx_size,
-                    rate_share,
-                    all_workers
-                )
-                log_file = PathMaker.client_log_file(i, id)
-                client_jobs.append((host, cmd, log_file))
-        self._background_run_many(client_jobs)
+                self._background_run(host, cmd, log_file)
 
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
         for _ in progress_bar(range(20), prefix=f'Running benchmark ({duration} sec):'):
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
-        # Give remote tee/file buffers a moment to flush before log download.
-        sleep(1)
 
-    def _logs(self, committee, faults, total_rate=None, tx_size=None,
-              design_tag=None, network_tag=None):
+    def _logs(self, committee, faults):
         # Delete local logs (if any).
         cmd = CommandMaker.clean_logs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
@@ -344,23 +311,9 @@ class Bench:
                 local=PathMaker.primary_log_file(i)
             )
 
-        # Parse logs and return the parser. If clients failed to start, we can
-        # still recover a summary from the configured size/rate values.
+        # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
-        default_client_rates = None
-        if total_rate is not None:
-            worker_count = committee.workers()
-            if worker_count > 0:
-                rate_share = ceil(total_rate / worker_count)
-                default_client_rates = [rate_share] * worker_count
-        return LogParser.process(
-            PathMaker.logs_path(),
-            faults=faults,
-            default_client_size=tx_size,
-            default_client_rates=default_client_rates,
-            design_tag=design_tag,
-            network_tag=network_tag,
-        )
+        return LogParser.process(PathMaker.logs_path(), faults=faults)
 
     def run(self, bench_parameters_dict, node_parameters_dict, debug=False):
         assert isinstance(debug, bool)
@@ -404,48 +357,24 @@ class Bench:
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
-                    summary_file = PathMaker.summary_file(
-                        bench_parameters.faults,
-                        n,
-                        bench_parameters.workers,
-                        bench_parameters.collocate,
-                        r,
-                        bench_parameters.tx_size,
-                        i + 1,
-                        design_tag=bench_parameters.design_tag,
-                        network_tag=bench_parameters.network_tag,
-                    )
                     try:
                         self._run_single(
                             r, committee_copy, bench_parameters, debug
                         )
 
                         faults = bench_parameters.faults
-                        logger = self._logs(
-                            committee_copy,
+                        logger = self._logs(committee_copy, faults)
+                        logger.print(PathMaker.result_file(
                             faults,
-                            total_rate=r,
-                            tx_size=bench_parameters.tx_size,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                        )
-                        logger.print(summary_file)
+                            n, 
+                            bench_parameters.workers,
+                            bench_parameters.collocate,
+                            r, 
+                            bench_parameters.tx_size, 
+                        ))
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:
                         self.kill(hosts=selected_hosts)
                         if isinstance(e, GroupException):
                             e = FabricError(e)
-                        write_failure_summary(
-                            summary_file,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                            faults=bench_parameters.faults,
-                            nodes=n,
-                            workers=bench_parameters.workers,
-                            collocate=bench_parameters.collocate,
-                            rate=r,
-                            tx_size=bench_parameters.tx_size,
-                            run=i + 1,
-                            error=str(e),
-                        )
                         Print.error(BenchError('Benchmark failed', e))
                         continue

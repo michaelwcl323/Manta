@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use crate::common::batch;
 use crate::worker::WorkerMessage;
@@ -36,7 +37,12 @@ async fn hash_and_store() {
             .try_into()
             .unwrap(),
     );
-    let expected = bincode::serialize(&WorkerPrimaryMessage::OurBatch(digest.clone(), id)).unwrap();
+    let expected = bincode::serialize(&WorkerPrimaryMessage::OurBatch(
+        digest.clone(),
+        id,
+        serialized.clone(),
+    ))
+    .unwrap();
     assert_eq!(output, expected);
 
     // Ensure the `Processor` correctly stored the batch.

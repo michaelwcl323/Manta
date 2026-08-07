@@ -80,7 +80,7 @@ def check_file_exists(conn, remote_path):
     except:
         return False
 
-def safe_get_file(conn, remote_path, local_path, timeout=300):
+def safe_get_file(conn, remote_path, local_path, timeout=30):
     """Download file with timeout, existence check, and progress percentage"""
     # First check if file exists
     Print.info(f'    Checking if file exists...')
@@ -123,6 +123,18 @@ def safe_get_file(conn, remote_path, local_path, timeout=300):
 
     sftp = None
     try:
+        # Ensure local directory exists and has correct permissions
+        local_path_obj = Path(local_path)
+        local_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        # Fix permissions if parent directory is owned by root
+        try:
+            import os
+            parent_stat = local_path_obj.parent.stat()
+            if parent_stat.st_uid == 0:  # Owned by root
+                os.chown(local_path_obj.parent, os.getuid(), os.getgid())
+        except Exception:
+            pass  # Ignore permission errors
+        
         with timeout_context(timeout):
             sftp = conn.sftp()
             sftp.get(remote_path, str(local_path), callback=_report_progress)
@@ -378,9 +390,19 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
         Print.error('Failed to load SSH key. Cannot proceed.')
         return False
     
-    # Create local logs directory
+    # Create local logs directory with proper permissions
     logs_dir = Path(PathMaker.logs_path())
     logs_dir.mkdir(parents=True, exist_ok=True)
+    # Fix permissions if directory is owned by root
+    try:
+        import stat
+        current_stat = logs_dir.stat()
+        if current_stat.st_uid == 0:  # Owned by root
+            import os
+            os.chown(logs_dir, os.getuid(), os.getgid())
+            Print.warn(f'  ⚠ Fixed logs directory ownership (was owned by root)')
+    except Exception:
+        pass  # Ignore permission errors
     
     # Download logs directly from each node
     try:
@@ -500,9 +522,19 @@ def download_primary_logs(settings_file='cloudlab_settings.json', node_indices=N
         Print.error('Failed to load SSH key. Cannot proceed.')
         return False
     
-    # Create local logs directory
+    # Create local logs directory with proper permissions
     logs_dir = Path(PathMaker.logs_path())
     logs_dir.mkdir(parents=True, exist_ok=True)
+    # Fix permissions if directory is owned by root
+    try:
+        import stat
+        current_stat = logs_dir.stat()
+        if current_stat.st_uid == 0:  # Owned by root
+            import os
+            os.chown(logs_dir, os.getuid(), os.getgid())
+            Print.warn(f'  ⚠ Fixed logs directory ownership (was owned by root)')
+    except Exception:
+        pass  # Ignore permission errors
     
     # Download logs directly from each specified node
     try:

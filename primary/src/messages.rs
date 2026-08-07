@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
@@ -14,19 +15,10 @@ pub struct Header {
     pub author: PublicKey,
     pub round: Round,
     pub payload: BTreeMap<Digest, WorkerId>,
+    pub inline_payload: Option<BTreeMap<Digest, Vec<u8>>>,
     pub parents: BTreeSet<Digest>,
     pub id: Digest,
     pub signature: Signature,
-    /// Stores the vertices of the first round of the solid step which can be linked to
-    pub solid_step_vertices: HashSet<Digest>,
-    /// Stores the merged solid-step vertices computed from parents at header creation time.
-    /// This preserves the union even when `solid_step_vertices` is re-initialized on init rounds.
-    pub solid_step_vertices_merged: HashSet<Digest>,
-    /// Stores the vertices of the current solid wave that can be linked to this header.
-    pub solid_wave_vertices: HashSet<Digest>,
-    /// Stores the merged solid-wave vertices computed from parents at header creation time.
-    /// This preserves the union even when `solid_wave_vertices` is re-initialized on wave-end rounds.
-    pub solid_wave_vertices_merged: HashSet<Digest>,
 }
 
 impl Header {
@@ -34,6 +26,7 @@ impl Header {
         author: PublicKey,
         round: Round,
         payload: BTreeMap<Digest, WorkerId>,
+        inline_payload: Option<BTreeMap<Digest, Vec<u8>>>,
         parents: BTreeSet<Digest>,
         signature_service: &mut SignatureService,
     ) -> Self {
@@ -41,13 +34,10 @@ impl Header {
             author,
             round,
             payload,
+            inline_payload,
             parents,
             id: Digest::default(),
             signature: Signature::default(),
-            solid_step_vertices: HashSet::new(),
-            solid_step_vertices_merged: HashSet::new(),
-            solid_wave_vertices: HashSet::new(),
-            solid_wave_vertices_merged: HashSet::new(),
         };
         let id = header.digest();
         let signature = signature_service.request_signature(id.clone()).await;
@@ -73,43 +63,26 @@ impl Header {
                 .map_err(|_| DagError::MalformedHeader(self.id.clone()))?;
         }
 
+        // Ensure the inlined payload matches the referenced digests.
+        if let Some(inline_payload) = &self.inline_payload {
+            for (digest, bytes) in inline_payload {
+                ensure!(
+                    self.payload.contains_key(digest),
+                    DagError::MalformedHeader(self.id.clone())
+                );
+                let computed = Digest(
+                    Sha512::digest(bytes).as_slice()[..32]
+                        .try_into()
+                        .unwrap(),
+                );
+                ensure!(computed == *digest, DagError::MalformedHeader(self.id.clone()));
+            }
+        }
+
         // Check the signature.
         self.signature
             .verify(&self.id, &self.author)
             .map_err(DagError::from)
-    }
-
-    pub fn store_solid_step_vertex(&mut self, vertices: HashSet<Digest>) {
-        self.solid_step_vertices.extend(vertices);
-    }
-
-    pub fn store_solid_step_merged_vertices(&mut self, vertices: HashSet<Digest>) {
-        self.solid_step_vertices_merged.extend(vertices);
-    }
-
-    pub fn store_solid_wave_vertex(&mut self, vertices: HashSet<Digest>) {
-        self.solid_wave_vertices.extend(vertices);
-    }
-
-    pub fn store_solid_wave_merged_vertices(&mut self, vertices: HashSet<Digest>) {
-        self.solid_wave_vertices_merged.extend(vertices);
-    }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ProposalParents {
-    pub parents: Vec<Digest>,
-    pub solid_step_union: HashSet<Digest>,
-    pub solid_wave_union: HashSet<Digest>,
-}
-
-impl From<Vec<Digest>> for ProposalParents {
-    fn from(parents: Vec<Digest>) -> Self {
-        Self {
-            parents,
-            solid_step_union: HashSet::new(),
-            solid_wave_union: HashSet::new(),
-        }
     }
 }
 
@@ -218,6 +191,12 @@ pub struct Certificate {
 }
 
 impl Certificate {
+    pub fn new(header: &Header, votes: Vec<(PublicKey, Signature)>) -> Self {
+        let mut header = header.clone();
+        header.inline_payload = None;
+        Self { header, votes }
+    }
+
     pub fn genesis(committee: &Committee) -> Vec<Self> {
         committee
             .authorities
