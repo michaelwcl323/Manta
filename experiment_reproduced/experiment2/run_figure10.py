@@ -200,6 +200,7 @@ def plot_figure10(local_results: Path, only_suite: str | None, output_dir: Path)
                         str(summary_csv),
                         "--output",
                         str(output_dir / "latency_by_kappa_sigma_reference.pdf"),
+                        "--auto-limits",
                     ],
                     check=False,
                 ).returncode
@@ -221,6 +222,7 @@ def plot_figure10(local_results: Path, only_suite: str | None, output_dir: Path)
                         str(summary_csv),
                         "--output",
                         str(output_dir / "reference_impact_kappa2_by_sigma.pdf"),
+                        "--auto-limits",
                     ],
                     check=False,
                 ).returncode
@@ -269,6 +271,7 @@ def plot_figure10(local_results: Path, only_suite: str | None, output_dir: Path)
                     ",".join(FIGURE10C_ORDER),
                     "--output",
                     str(output_dir / "attack_latency_timeseries_overlay_mean.pdf"),
+                    "--auto-limits",
                 ],
                 check=False,
             ).returncode

@@ -69,7 +69,12 @@ def build_series(means: dict[tuple[int, int, int], float]) -> list[tuple[str, st
     return series
 
 
-def draw(series: list[tuple[str, str, str, list[float]]], output_path: Path) -> None:
+def draw(
+    series: list[tuple[str, str, str, list[float]]],
+    output_path: Path,
+    *,
+    auto_limits: bool = False,
+) -> None:
     fig, ax = plt.subplots(figsize=(12.87, 8.58), dpi=180)
 
     for label, color, linestyle, ys in series:
@@ -88,9 +93,12 @@ def draw(series: list[tuple[str, str, str, list[float]]], output_path: Path) -> 
     ax.set_xlabel(r"Reference $ref$", fontsize=37.368)
     ax.set_ylabel("Latency (s)", fontsize=37.368)
     ax.set_xticks(REFERENCES)
-    ax.set_xlim(3.5, 10.5)
-    ax.set_ylim(1.0, 1.3)
-    ax.set_yticks([1.0, 1.1, 1.2, 1.3])
+    if not auto_limits:
+        ax.set_xlim(3.5, 10.5)
+        ax.set_ylim(1.0, 1.3)
+        ax.set_yticks([1.0, 1.1, 1.2, 1.3])
+    else:
+        ax.margins(x=0.08, y=0.12)
     ax.set_box_aspect(1 / 1.5)
 
     ax.tick_params(axis="both", labelsize=37.368, width=2.429)
@@ -118,6 +126,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_OUTPUT,
         help="Output figure path (PDF recommended).",
     )
+    parser.add_argument(
+        "--auto-limits",
+        action="store_true",
+        help="Do not apply paper-fixed xlim/ylim (for experiment reproduction).",
+    )
     return parser.parse_args()
 
 
@@ -126,7 +139,7 @@ def main() -> None:
     means = load_mean_latency_s(args.summary_csv.resolve())
     series = build_series(means)
     output = args.output.resolve()
-    draw(series, output)
+    draw(series, output, auto_limits=args.auto_limits)
     print(output)
 
 

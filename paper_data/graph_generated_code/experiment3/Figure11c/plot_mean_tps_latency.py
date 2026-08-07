@@ -124,6 +124,11 @@ def main() -> None:
         default=OUT_DIR,
         help="Directory for generated PDFs (default: results/regenerate_graphs).",
     )
+    parser.add_argument(
+        "--auto-limits",
+        action="store_true",
+        help="Do not apply paper-fixed ylim (for experiment reproduction).",
+    )
     args = parser.parse_args()
     DATA_ROOT = args.data_root
     OUT_DIR = args.output_dir
@@ -166,7 +171,10 @@ def main() -> None:
 
     ax.set_xlabel("Throughput (KTps)", fontsize=AXIS_LABEL_FONTSIZE)
     ax.set_ylabel("Latency (s)", fontsize=AXIS_LABEL_FONTSIZE, labelpad=6)
-    ax.set_ylim(0, 4)
+    if not args.auto_limits:
+        ax.set_ylim(0, 4)
+    else:
+        ax.margins(y=0.12)
     ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
     ax.margins(x=0.05)
     handles, labels = ax.get_legend_handles_labels()

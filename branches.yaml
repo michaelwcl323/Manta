@@ -1,27 +1,92 @@
 repository: https://github.com/michaelwcl323/manta-nsdi27.git
 
+# Branch map for the NSDI'27 artifact.
+# Protocol trees are flat at the branch root unless `path` / `paths` is set.
+
+artifact:
+  branch: artifact-evaluation
+  description: Evaluation instructions, experiment_reproduced/, paper_data/, and orchestration scripts
+
 implementations:
   manta:
     branch: manta
-    commit: <FINAL_MANTA_COMMIT>
-    description: Complete Manta implementation
-
-  manta-scalable:
-    branch: manta-scalable-version
-    commit: <FINAL_SCALABLE_COMMIT>
-    description: Manta implementation used for 50-node experiments
+    description: Complete Manta implementation (Figures 11(a)/11(c))
+    # Paper Figure 11(a)/(c) defaults (also in experiment_reproduced/experiment3/matrix.yaml)
+    parameters:
+      sigma: 2
+      kappa: 2
+      reference: 4
+      coverage: 7
 
   tusk:
     branch: tusk
-    commit: <FINAL_TUSK_COMMIT>
-    description: Tusk and DAG-Rider baseline
+    description: Tusk baseline (same codebase as DAG-Rider; distinguished by kappa)
+    # Paper Sec.5.4/6.1 (n=10,f=3): σ=1, κ=2, ref=cov=2f+1=7
+    parameters:
+      sigma: 1
+      kappa: 2
+      reference: 7
+      coverage: 7
+
+  dag-rider:
+    branch: tusk
+    description: DAG-Rider baseline (tusk branch; κ=3 per paper Sec.5.4/6.1)
+    parameters:
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
 
   mahi-mahi:
     branch: mahi-mahi
-    commit: <FINAL_MAHI_COMMIT>
-    description: Mahi-Mahi baseline
+    description: Mahi-Mahi baseline (paper Sec.6.1: κ=3, ref=cov=2f+1)
+    parameters:
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
 
   chitu:
     branch: chitu
-    commit: <FINAL_CHITU_COMMIT>
-    description: Chitu baseline
+    description: Chitu baseline (paper Sec.6.1: κ=3, ref=cov=2f+1)
+    parameters:
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
+
+experiments:
+  experiment1:
+    branch: experiment1
+    paths:
+      coupled: coupled
+      decoupled: decoupled
+    description: Figure 9 heterogeneity study (coupled + decoupled trees)
+
+  experiment2:
+    branch: experiment2
+    description: Figure 10 parameter trade-offs (flat Manta at branch root; sweeps sigma/kappa/reference)
+
+  experiment3:
+    description: Figure 11 protocol comparison
+    figure11a_11c:
+      platform: CloudLab
+      protocols: [manta, tusk, dag-rider, chitu, mahi-mahi]
+      # Per-protocol sigma/kappa/reference/coverage — see implementations.* and matrix.yaml
+    figure11b:
+      platform: AWS
+      branch: experiment3
+      path: manta
+      description: 50-replica large-scale Manta (code under manta/)
+      parameters:
+        sigma: 1
+        # flexible-coin commit enabled; see experiment3/manta/README.md
+
+  experiment4:
+    branch: experiment4
+    description: Figure 12 + Table 2 flexible-coin ablation (flat Manta at branch root)
+    parameters:
+      sigma: 2
+      kappa: 2
+      reference: 4
+      coverage: 7

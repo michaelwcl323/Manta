@@ -24,6 +24,11 @@ variants:
       sync_retry_nodes: 4
       batch_size: 500000
       max_batch_delay: 50
+      # Paper Sec.5.4/6.1 (n=10,f=3): σ=1, κ=2, ref=cov=2f+1=7
+      sigma: 1
+      kappa: 2
+      reference: 7
+      coverage: 7
     node_params_11c:
       header_size: 1000
       max_header_delay: 400
@@ -32,6 +37,41 @@ variants:
       sync_retry_nodes: 4
       batch_size: 500000
       max_batch_delay: 200
+      sigma: 1
+      kappa: 2
+      reference: 7
+      coverage: 7
+  dag-rider:
+    # Same git branch / build tree as tusk; distinguished by solid-wave params.
+    branch: tusk
+    flat_repo_name: manta-exp3-tusk
+    result_dir_11a: DAG-rider-result
+    result_dir_11c: rider_faulty
+    node_params_11a:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 50
+      # Paper Sec.5.4/6.1: σ=1, κ=3, ref=cov=2f+1=7
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
+    node_params_11c:
+      header_size: 1000
+      max_header_delay: 400
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 200
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
   manta:
     branch: manta
     flat_repo_name: manta-exp3-manta
@@ -45,6 +85,7 @@ variants:
       sync_retry_nodes: 7
       batch_size: 500000
       max_batch_delay: 50
+      # Paper Sec.5.1 (n=10,f=3): σ=2, κ=2, ref=f+1=4, cov=2f+1=7
       sigma: 2
       kappa: 2
       reference: 4
@@ -66,6 +107,7 @@ variants:
       sync_retry_nodes: 4
       batch_size: 500000
       max_batch_delay: 50
+      # Paper Sec.5.1 (n=10,f=3): σ=2, κ=2, ref=f+1=4, cov=2f+1=7
       sigma: 2
       kappa: 2
       reference: 4
@@ -92,6 +134,11 @@ variants:
       sync_retry_nodes: 7
       batch_size: 500000
       max_batch_delay: 200
+      # Matches origin/chitu fabfile; paper Sec.6.1: κ=3, ref=cov=2f+1=7
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
     node_params_11c:
       header_size: 1000
       max_header_delay: 400
@@ -100,6 +147,10 @@ variants:
       sync_retry_nodes: 7
       batch_size: 500000
       max_batch_delay: 200
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
   mahi-mahi:
     branch: mahi-mahi
     flat_repo_name: manta-exp3-mahi-mahi
@@ -113,6 +164,11 @@ variants:
       sync_retry_nodes: 4
       batch_size: 500000
       max_batch_delay: 50
+      # Matches origin/mahi-mahi fabfile; paper Sec.6.1: κ=3, ref=cov=2f+1=7
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
     node_params_11c:
       header_size: 1000
       max_header_delay: 100
@@ -121,6 +177,10 @@ variants:
       sync_retry_nodes: 4
       batch_size: 500000
       max_batch_delay: 50
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
 
 suites:
   figure11a:
@@ -130,6 +190,7 @@ suites:
     wan_profile: wan/cloudlab_settings_geo.json
     design_tag_by_variant:
       tusk: tusk_experiment3
+      dag-rider: rider_experiment3
       manta: manta_data_forpaper3
       chitu: chitu_experiment3
       mahi-mahi: mahi_data_forpaper
@@ -149,6 +210,7 @@ suites:
     wan_profile: wan/cloudlab_settings_geo.json
     design_tag_by_variant:
       tusk: tusk_faulty
+      dag-rider: rider_faulty
       manta: manta-faulty
       chitu: chitu_faulty
       mahi-mahi: mahi-mahi-faulty

@@ -3,8 +3,12 @@
 
 Runs on the CloudLab controller. Replicas are driven only via SSH/Fabric from here.
 
-Each protocol (tusk, manta, chitu, mahi-mahi) is a separate git branch checked out
-to ``$HOME/{flat_repo_name}`` on the controller and every replica.
+Each protocol (tusk, dag-rider, manta, chitu, mahi-mahi) is a separate logical
+variant. ``tusk`` and ``dag-rider`` share git branch ``tusk`` / tree
+``$HOME/manta-exp3-tusk`` and differ by solid-wave ``sigma``/``kappa``.
+``manta`` / ``chitu`` / ``mahi-mahi`` each use their own branch checked out to
+``$HOME/{flat_repo_name}``. All five protocols pass
+``sigma``/``kappa``/``reference``/``coverage`` from ``matrix.yaml``.
 
 Prepare runs in parallel across all replicas (one variant at a time) and must
 finish before any WAN/delay setup or benchmark cells.
@@ -36,11 +40,15 @@ CORE_NODE_KEYS = (
     "max_batch_delay",
 )
 
-MANTA_EXTRA_KEYS = (
+# Committee solid-wave params (tusk / dag-rider / manta).
+WAVE_KEYS = (
     "sigma",
     "kappa",
     "reference",
     "coverage",
+)
+
+MANTA_EXTRA_KEYS = (
     "allow_cross_step_weak_edges",
     "enable_fast_coin",
     "solid_commit_trigger_on_solid_step",
@@ -52,7 +60,7 @@ MANTA_EXTRA_KEYS = (
     "solid_candidate_threshold",
 )
 
-VARIANT_CHOICES = ("tusk", "manta", "chitu", "mahi-mahi")
+VARIANT_CHOICES = ("tusk", "dag-rider", "manta", "chitu", "mahi-mahi")
 SUITE_CHOICES = ("figure11a", "figure11c")
 
 
@@ -318,16 +326,25 @@ def prepare_all_variants(
         return
 
     n_hosts = len(hosts)
-    progress_total = n_hosts * len(variants)
+    # tusk and dag-rider share flat_repo_name / branch — prepare once per unique tree.
+    unique_trees: list[tuple[str, str, str]] = []
+    seen_flat: set[str] = set()
+    for name, cfg in variants.items():
+        flat = cfg["flat_repo_name"]
+        if flat in seen_flat:
+            print(f"[exp3] prepare: reuse tree {flat} for variant={name}", flush=True)
+            continue
+        seen_flat.add(flat)
+        unique_trees.append((name, flat, cfg["branch"]))
+
+    progress_total = n_hosts * len(unique_trees)
     print(
-        f"[exp3] phase prepare: {n_hosts} hosts (parallel) × {len(variants)} variants "
-        f"(total_jobs={progress_total})",
+        f"[exp3] phase prepare: {n_hosts} hosts (parallel) × {len(unique_trees)} trees "
+        f"(from {len(variants)} variants; total_jobs={progress_total})",
         flush=True,
     )
     progress_base = 0
-    for name, cfg in variants.items():
-        flat = cfg["flat_repo_name"]
-        branch = cfg["branch"]
+    for name, flat, branch in unique_trees:
         prepare_controller_flat(Path.home() / flat, repo_url, branch, prepare_script)
         done = prepare_variant_on_replicas(
             hosts=hosts,
@@ -402,6 +419,12 @@ def build_run_params(
     # Always start from core Narwhal keys present in the matrix.
     node_params = {k: raw[k] for k in CORE_NODE_KEYS if k in raw}
 
+    # All five protocols expose committee wave params in their trees.
+    if variant_name in ("tusk", "dag-rider", "manta", "chitu", "mahi-mahi"):
+        for k in WAVE_KEYS:
+            if k in raw:
+                node_params[k] = raw[k]
+
     if variant_name == "manta":
         for k in MANTA_EXTRA_KEYS:
             if k in raw:
@@ -422,7 +445,7 @@ def build_run_params(
     }
 
     # Tags: manta reads from node_params; others from bench_params where supported.
-    if variant_name == "tusk":
+    if variant_name in ("tusk", "dag-rider"):
         bench_params["design_tag"] = design_tag
         bench_params["network_tag"] = network_tag
     elif variant_name == "chitu":

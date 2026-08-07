@@ -34,7 +34,7 @@ DEFAULT_BUILD = REPO_ROOT / "build"
 DEFAULT_PLOT_DIR = REPO_ROOT / "results" / "regenerate_graphs"
 PLOT_SCRIPTS_DIR = REPO_ROOT / "paper_data" / "graph_generated_code" / "experiment3"
 
-VARIANT_CHOICES = ("tusk", "manta", "chitu", "mahi-mahi")
+VARIANT_CHOICES = ("tusk", "dag-rider", "manta", "chitu", "mahi-mahi")
 SUITE_CHOICES = ("figure11a", "figure11c")
 
 
@@ -209,6 +209,7 @@ def plot_figure11(local_results: Path, only_suite: str | None, output_dir: Path)
                 str(data_root),
                 "--output-dir",
                 str(output_dir),
+                "--auto-limits",
             ]
         )
 

@@ -1,8 +1,8 @@
 # Experiment 3 / Figure 11(a)+(c) — controller-driven reproduction
 
-Scripts and results for re-running paper Figure 11(a) and 11(c) across four
-protocols (`tusk`, `manta`, `chitu`, `mahi-mahi`). **Only the CloudLab controller
-is contacted from this laptop**; the controller SSHs to replica hosts.
+Scripts and results for re-running paper Figure 11(a) and 11(c) across five
+protocols (`tusk`, `dag-rider`, `manta`, `chitu`, `mahi-mahi`). **Only the CloudLab
+controller is contacted from this laptop**; the controller SSHs to replica hosts.
 
 Figure 11(b) (50 replicas) is AWS-only and is **not** covered here — see
 `aws/README.md`. Protocol code lives on branch `experiment3`
@@ -20,15 +20,15 @@ experiment_reproduced/experiment3/
     controller_orchestrator.py   # runs ON the controller
     prepare_repo.sh              # clone/build ON each replica (+ controller)
   results/
-    Figure11a/                     # {Tusk-result,Manta-result,Chitu-results,Mahi-mahi-result}/
-    Figure11c/                     # {tusk_faulty,manta_faulty,chitu_faulty,mahi-mahi-faulty}/
+    Figure11a/                     # {Tusk,DAG-rider,Manta,Chitu,Mahi-mahi}-result/
+    Figure11c/                     # {tusk,rider,manta,chitu,mahi-mahi}_faulty/
 ```
 
 ## Scenario switching
 
 | Switch | How |
 |---|---|
-| **variant** (`tusk` / `manta` / `chitu` / `mahi-mahi`) | Flat trees `$HOME/manta-exp3-{variant}` from that protocol’s git branch; `repo.name` points at the active tree |
+| **variant** (`tusk` / `dag-rider` / `manta` / `chitu` / `mahi-mahi`) | Flat trees `$HOME/manta-exp3-{…}` from that protocol’s git branch (`tusk` and `dag-rider` share `manta-exp3-tusk`); `repo.name` points at the active tree |
 | **suite** (`figure11a` / `figure11c`) | Faults, rates, design tags, and WAN mode from `matrix.yaml` |
 | **network** | 11(a) and 11(c): both use geo WAN `clear`+`setup` |
 
@@ -43,7 +43,8 @@ all prepares finish → then WAN + experiments (never overlap).
 
 1. CloudLab experiment is up (`portal_experiment.py` + `wait_*`).
 2. Getting Started deployed (`python cloudlab/deploy_environment.py --skip-functional-test` is enough).
-3. Remote `origin` has branches `tusk`, `manta`, `chitu`, `mahi-mahi`.
+3. Remote `origin` has branches `tusk`, `manta`, `chitu`, `mahi-mahi`
+   (`dag-rider` reuses `tusk` with different `sigma`/`kappa`).
 4. `cloudlab_settings.json` has replica `hosts` (`10.10.1.1`–`10.10.1.10`) and SSH key.
 
 ## Run Figure 11(a) and 11(c)
@@ -71,8 +72,11 @@ python experiment_reproduced/experiment3/run_figure11.py --keep-remote-workdir
 | `figure11a` | 11(a) | geo | 0 | 40k–140k step 20k | 2 |
 | `figure11c` | 11(c) | geo | 3 silent | 80k–180k step 20k | 2 |
 
-Shared: 10 nodes, duration 120s, `tx_size` 512, balanced load. Per-protocol
-`node_params` (delays, manta flexible-coin flags, etc.) live in `matrix.yaml`.
+Shared: 10 nodes, duration 120s, `tx_size` 512, balanced load. Solid-wave
+params (`sigma`/`kappa`/`reference`/`coverage`) for all five protocols live in
+`matrix.yaml`, taken from paper Sec.5.4/6.1 ($n{=}10$, $f{=}3$):
+Tusk $(1,2,7,7)$, DAG-Rider $(1,3,7,7)$, Chitu/Mahi-Mahi $(1,3,7,7)$,
+Manta $(2,2,4,7)$.
 
 ## Plotting
 
@@ -93,8 +97,8 @@ python paper_data/graph_generated_code/experiment3/Figure11c/plot_mean_tps_laten
 ## Notes
 
 - First prepare builds Rust for **four** protocol trees on every replica (and the
-  controller) — expect a long first run. Delay/experiments start only after all
-  prepares finish.
+  controller) — `tusk`/`dag-rider` share one tree — expect a long first run.
+  Delay/experiments start only after all prepares finish.
 - WAN profile for 11(a) is paper Sec 6.1 **geo (N2)**: clusters **6+3+1** on
   `10.10.1.1–6` / `.7–9` / `.10`; **intra-cluster RTT = 0**; inter-cluster RTT =
   2× paper OWD (A–B 103, B–C 153, A–C 234).

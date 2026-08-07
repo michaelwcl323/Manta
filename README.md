@@ -404,12 +404,12 @@ Estimated runtimes below are wall-clock for the reproduction commands in this se
 |---|---|---|---|
 | `figure9` | Figure 9 | CloudLab | ~2–3 hours |
 | `figure10a` / `figure10b` / `figure10c` | Figure 10 | CloudLab | ~2.5–4 hours (one `run_figure10.py`) |
-| `figure11a` | Figure 11(a) | CloudLab | ~5–7 hours |
+| `figure11a` | Figure 11(a) | CloudLab | ~6–8 hours |
 | `figure11b` | Figure 11(b) | AWS | — |
-| `figure11c` | Figure 11(c) | CloudLab | ~5–7 hours |
+| `figure11c` | Figure 11(c) | CloudLab | ~6–8 hours |
 | `figure12` / `table2` | Figure 12 + Table 2 | CloudLab | ~1.5–2.5 hours (one `run_figure12.py`) |
 
-Running both Figure 11(a) and 11(c) in one `run_figure11.py` invocation takes about **~10–14 hours**.
+Running both Figure 11(a) and 11(c) in one `run_figure11.py` invocation takes about **~12–16 hours**.
 
 ### 5.2 E1: Impact of Heterogeneity — Figure 9
 
@@ -502,16 +502,22 @@ PDFs under `results/regenerate_graphs/` matching paper Figure 10(a)–(c)
 #### Figure 11(a): 10-Replica Fault-Free Performance
 
 Controller-driven reproduction lives under `experiment_reproduced/experiment3/`.
-It checks out each protocol branch (`tusk`, `manta`, `chitu`, `mahi-mahi`) into a
-flat tree `$HOME/manta-exp3-{protocol}` on the controller and replicas. This
+It checks out each protocol branch (`tusk`/`dag-rider`, `manta`, `chitu`, `mahi-mahi`) into a
+flat tree `$HOME/manta-exp3-{protocol}` on the controller and replicas
+(`dag-rider` reuses the `tusk` tree with different `sigma`/`kappa`). This
 laptop only SSHs to the **controller**.
 
 ##### Configuration
 
-- Protocols: `tusk`, `manta`, `chitu`, `mahi-mahi`
+- Protocols: `tusk`, `dag-rider`, `manta`, `chitu`, `mahi-mahi`
 - Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment3/wan/`)
 - Faults: 0
 - Rates: $40{,}000$–$140{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+- Solid-wave params from paper Sec.5.4/6.1 with $n{=}10$, $f{=}3$ (see `matrix.yaml`):
+  Tusk $(\sigma,\kappa,\mathrm{ref},\mathrm{cov})=(1,2,7,7)$;
+  DAG-Rider $(1,3,7,7)$;
+  Chitu / Mahi-Mahi $(1,3,7,7)$;
+  Manta $(2,2,4,7)$
 
 See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
@@ -526,13 +532,13 @@ python experiment_reproduced/experiment3/run_figure11.py
 
 ##### Runtime and Output
 
-**Estimated runtime: ~5–7 hours** for Figure 11(a) alone (4 protocols × 6 rates × 2 runs = 48 cells at duration 120s, plus per-protocol checkout/build). Running 11(a)+11(c) together: **~10–14 hours**.
+**Estimated runtime: ~6–8 hours** for Figure 11(a) alone (5 protocols × 6 rates × 2 runs = 60 cells at duration 120s, plus per-protocol checkout/build; `tusk`/`dag-rider` share one build). Running 11(a)+11(c) together: **~12–16 hours**.
 
 Summaries are synced to (**`*.txt` plot inputs only**):
 
 ```text
 experiment_reproduced/experiment3/results/Figure11a/
-  Tusk-result/  Manta-result/  Chitu-results/  Mahi-mahi-result/
+  Tusk-result/  DAG-rider-result/  Manta-result/  Chitu-results/  Mahi-mahi-result/
 ```
 
 `run_figure11.py` then **directly calls** the Figure 11(a) plot script (same as §4.3)
@@ -558,10 +564,11 @@ the last $f=3$ nodes/clients are **not booted** (not the Experiment 2 attack).
 
 ##### Configuration
 
-- Protocols: `tusk`, `manta`, `chitu`, `mahi-mahi`
+- Protocols: `tusk`, `dag-rider`, `manta`, `chitu`, `mahi-mahi`
 - Network: `geo` (same 6+3+1 WAN as 11(a))
 - Faults: 3 (silent)
 - Rates: $80{,}000$–$180{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+- Same solid-wave params as 11(a) (see `matrix.yaml`)
 
 See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
@@ -573,13 +580,13 @@ python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
 
 ##### Runtime and Output
 
-**Estimated runtime: ~5–7 hours** (4 protocols × 6 rates × 2 runs = 48 cells at duration 120s, plus per-protocol prepare if not already built from 11(a)).
+**Estimated runtime: ~6–8 hours** (5 protocols × 6 rates × 2 runs = 60 cells at duration 120s, plus per-protocol prepare if not already built from 11(a)).
 
 Summaries are synced to (**`*.txt` plot inputs only**):
 
 ```text
 experiment_reproduced/experiment3/results/Figure11c/
-  tusk_faulty/  manta_faulty/  chitu_faulty/  mahi-mahi-faulty/
+  tusk_faulty/  rider_faulty/  manta_faulty/  chitu_faulty/  mahi-mahi-faulty/
 ```
 
 `run_figure11.py` then **directly calls** the Figure 11(c) plot script (same as §4.3)

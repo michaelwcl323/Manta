@@ -654,7 +654,7 @@ def draw(
     y_log_cut_s: float,
     y_log_below_cut_scale: float,
     y_lim: tuple[float, float] | None,
-    x_lim: tuple[float, float],
+    x_lim: tuple[float, float] | None,
     *,
     y_composition: bool,
     composition_low_pct: float,
@@ -806,7 +806,10 @@ def draw(
                 cut_s=y_log_cut_s,
                 below_scale=y_log_below_cut_scale,
             )
-        ax.set_xlim(x_lim[0], x_lim[1])
+        if x_lim is not None:
+            ax.set_xlim(x_lim[0], x_lim[1])
+        else:
+            ax.margins(x=0.03)
         if y_composition and aggregated:
             lo, hi = composition_y_limits_from_aggregated(
                 aggregated,
@@ -827,6 +830,8 @@ def draw(
                 ax.margins(y=0.08)
         elif y_lim is not None:
             ax.set_ylim(y_lim[0], y_lim[1])
+        else:
+            ax.margins(y=0.08)
         else:
             ax.margins(y=0.08)
         if not y_log_scale:
@@ -948,6 +953,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Ignore --y-min-s/--y-max-s and set y from data (composition or shared raw limits), "
             "e.g. for log-scale or exploratory plots."
+        ),
+    )
+    parser.add_argument(
+        "--auto-limits",
+        action="store_true",
+        help=(
+            "For experiment reproduction: do not apply paper-fixed x/y limits "
+            "(implies --y-range-auto and data-driven x range)."
         ),
     )
     parser.add_argument(
@@ -1206,13 +1219,19 @@ def _resolved_y_lim_and_draw_kw(
 
 def main() -> None:
     args = parse_args()
+    if args.auto_limits:
+        args.y_range_auto = True
     _resolve_default_y_min_max(args)
-    if args.x_max_s <= args.x_min_s:
+    if not args.auto_limits and args.x_max_s <= args.x_min_s:
         raise SystemExit("--x-max-s must be greater than --x-min-s")
     if not args.y_range_auto and args.y_min_s is not None and args.y_max_s is not None:
         if args.y_min_s >= args.y_max_s:
             raise SystemExit("--y-max-s must be greater than --y-min-s")
 
+    def _x_lim() -> tuple[float, float] | None:
+        if args.auto_limits:
+            return None
+        return (args.x_min_s, args.x_max_s)
     overlay_paths = args.merge_runs if args.merge_runs else args.merge_four_runs
     if args.merge_runs and args.merge_four_runs:
         raise SystemExit("Use either --merge-runs or --merge-four-runs, not both.")
@@ -1261,7 +1280,7 @@ def main() -> None:
             args.y_log_cut_s,
             args.y_log_below_cut_scale,
             resolved_y_lim,
-            (args.x_min_s, args.x_max_s),
+            _x_lim(),
             rolling_stat=args.rolling_stat,
             legend_loc=args.legend_loc,
             legend_font_size=args.legend_font_size,
@@ -1314,7 +1333,7 @@ def main() -> None:
         args.y_log_cut_s,
         args.y_log_below_cut_scale,
         resolved_y_lim,
-        (args.x_min_s, args.x_max_s),
+        _x_lim(),
         rolling_stat=args.rolling_stat,
         legend_loc=args.legend_loc,
         legend_font_size=args.legend_font_size,
