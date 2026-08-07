@@ -1088,9 +1088,13 @@ class CloudLabBench:
                     text=True
                 )
                 if result.returncode == 0:
-                    summary = self._extract_summary(result.stdout)
+                    # Subprocess stdout is captured; re-print the full SUMMARY block.
+                    summary = self._extract_summary(result.stdout or '')
                     if summary:
-                        print(summary)
+                        print(summary, flush=True)
+                    elif result.stdout:
+                        # Fallback: show whatever the post-processor printed.
+                        print(result.stdout, flush=True)
                     Print.info('✓ run_cloudlab_benchmark.py --no-run completed successfully')
                 else:
                     Print.warn(f'⚠ run_cloudlab_benchmark.py --no-run exited with code {result.returncode}')
@@ -1109,21 +1113,48 @@ class CloudLabBench:
 
     @staticmethod
     def _extract_summary(output):
+        """Extract the LogParser SUMMARY block from post-processor stdout.
+
+        Summary format has *three* dashed separators::
+
+            -----------------------------------------
+             SUMMARY:
+            -----------------------------------------
+             + CONFIG:
+             ...
+             + RESULTS:
+             ...
+            -----------------------------------------
+
+        Older code stopped at the *second* separator (right under SUMMARY), which
+        produced an empty-looking terminal print even when metrics were computed.
+        """
         if not output:
             return ''
 
-        marker = '-----------------------------------------\n SUMMARY:\n'
-        start = output.find(marker)
+        start_marker = '-----------------------------------------\n SUMMARY:\n'
+        start = output.find(start_marker)
         if start == -1:
             return ''
 
-        end = output.find('-----------------------------------------', start + len(marker))
+        # Skip past the header separator immediately under "SUMMARY:".
+        after_title = start + len(start_marker)
+        header_sep = '-----------------------------------------\n'
+        if output.startswith(header_sep, after_title):
+            body_start = after_title + len(header_sep)
+        else:
+            body_start = after_title
+
+        # Closing separator after RESULTS (third dashed line).
+        close_sep = '\n-----------------------------------------'
+        end = output.find(close_sep, body_start)
         if end == -1:
             return output[start:].strip()
 
-        end = output.find('\n', end)
-        if end == -1:
-            end = len(output)
+        # Include the closing dashed line (and its trailing newline if present).
+        end = end + len(close_sep)
+        if end < len(output) and output[end] == '\n':
+            end += 1
         return output[start:end].strip()
     
     def _background_run(self, host_info, command, log_file):
