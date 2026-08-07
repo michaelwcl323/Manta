@@ -189,7 +189,7 @@ Regenerated figures go to `results/regenerate_graphs/`.
 
 #### Figure 9(a)
 
-Workload-grouped consensus latency and throughput for the **decoupled** architecture at $100{,}000$ tx/s offered load, comparing networks (80ms, geo) within each workload (balanced, custom-high-3, custom-high-5). Reads summary `*.txt` files from `paper_data/original_data/Figure9a/`.
+Workload-grouped consensus latency and throughput for the **decoupled** architecture at $100000$ tx/s offered load, comparing networks (80ms, geo) within each workload (balanced, custom-high-3, custom-high-5). Reads summary `*.txt` files from `paper_data/original_data/Figure9a/`.
 
 ```bash
 cd paper_data/graph_generated_code/experiment1
@@ -204,7 +204,7 @@ results/regenerate_graphs/workload_grouped_network_metrics_decouple_100k_consens
 
 #### Figure 9(b)
 
-Workload-grouped consensus latency and throughput for the **Tusk coupled** architecture at $60{,}000$ tx/s offered load, using the same network/workload grouping as Figure 9(a). Reads summary `*.txt` files from `paper_data/original_data/Figure9b/`.
+Workload-grouped consensus latency and throughput for the **Tusk coupled** architecture at $60000$ tx/s offered load, using the same network/workload grouping as Figure 9(a). Reads summary `*.txt` files from `paper_data/original_data/Figure9b/`.
 
 ```bash
 cd paper_data/graph_generated_code/experiment1
@@ -355,7 +355,7 @@ Plotting / aggregation code for Experiment 4 lives in
 #### Figure 12
 
 Compare complete Manta against the no-flexible-coin ablation at input rates
-$80{,}000$, $100{,}000$, and $120{,}000$ tx/s.
+$80000$, $100000$, and $120000$ tx/s.
 
 - **complete** (default): Manta rows from
   `paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv`
@@ -398,8 +398,6 @@ prints the output paths.
 
 ### 5.1 Experiment Overview
 
-Estimated runtimes below are wall-clock for the reproduction commands in this section (controller prepare/build + all bench cells), based on the default `matrix.yaml` settings. They **exclude** CloudLab portal instantiate / bootstrap / deploy (§3), which is typically another **~1–2 hours** once per cluster.
-
 | Experiment ID | Paper Result | Platform | Est. runtime |
 |---|---|---|---|
 | `figure9` | Figure 9 | CloudLab | ~2–3 hours |
@@ -408,8 +406,6 @@ Estimated runtimes below are wall-clock for the reproduction commands in this se
 | `figure11b` | Figure 11(b) | AWS | — |
 | `figure11c` | Figure 11(c) | CloudLab | ~6–8 hours |
 | `figure12` / `table2` | Figure 12 + Table 2 | CloudLab | ~1.5–2.5 hours (one `run_figure12.py`) |
-
-Running both Figure 11(a) and 11(c) in one `run_figure11.py` invocation takes about **~12–16 hours**.
 
 ### 5.2 E1: Impact of Heterogeneity — Figure 9
 
@@ -421,8 +417,8 @@ scenarios (variant / network / workload).
 #### Configuration
 
 - Branch: `experiment1`
-- Figure 9(a): `decoupled`, $100{,}000$ tx/s, header/batch delay $200$ ms
-- Figure 9(b): `coupled`, $60{,}000$ tx/s, `max_header_batches=1`, delays $50$ ms
+- Figure 9(a): `decoupled`, $100000$ tx/s, header/batch delay $200$ ms
+- Figure 9(b): `coupled`, $60000$ tx/s, `max_header_batches=1`, delays $50$ ms
 - Networks: `80ms`, `geo`
 - Workloads: `balanced`, `custom-high-3`, `custom-high-5`
 
@@ -435,9 +431,7 @@ See `experiment_reproduced/experiment1/matrix.yaml` and `README.md`.
 python experiment_reproduced/experiment1/run_figure9.py
 ```
 
-#### Runtime and Output
-
-**Estimated runtime: ~2–3 hours** (18 cells: Figure 9(a) = 2 networks × 3 workloads × 2 runs at 60s; Figure 9(b) = 2 × 3 × 1 run at 120s; plus controller prepare for coupled/decoupled trees and WAN profile switches).
+#### Output
 
 Summaries are synced to (**`*.txt` plot inputs only**):
 
@@ -464,7 +458,7 @@ the geo WAN profile once, and sweeps parameter cells from `matrix.yaml`.
 
 - Branch: `experiment2`
 - Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment2/wan/`)
-- Figure 10(a)/(b): `σ∈{1,2}`, `κ∈{2,3,4}`, `ref∈{4,7,10}`, coverage fixed at 7, 1 run, $100{,}000$ tx/s (18 cells)
+- Figure 10(a)/(b): `σ∈{1,2}`, `κ∈{2,3,4}`, `ref∈{4,7,10}`, coverage fixed at 7, 1 run, $100000$ tx/s (18 cells)
 - Figure 10(c): certificate-limiting attack from $t=60$s; four `(κ, ref, coverage)` configs (4 cells)
 
 See `experiment_reproduced/experiment2/matrix.yaml` and `README.md`.
@@ -477,9 +471,7 @@ python experiment_reproduced/experiment2/run_figure10.py
 # optional: --only-suite figure10a_10b | figure10c
 ```
 
-#### Runtime and Output
-
-**Estimated runtime: ~2.5–4 hours** for the full matrix (22 cells × ~4 min wall-clock each at duration 120s, plus first-time prepare/build and geo WAN setup). Suites alone: Figure 10(a)/(b) ~2–3 hours; Figure 10(c) ~20–40 minutes.
+#### Output
 
 Plot inputs only are synced to:
 
@@ -512,7 +504,7 @@ laptop only SSHs to the **controller**.
 - Protocols: `tusk`, `dag-rider`, `manta`, `chitu`, `mahi-mahi`
 - Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment3/wan/`)
 - Faults: 0
-- Rates: $40{,}000$–$140{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+- Rates: $40000$–$140000$ tx/s (step $20000$), 2 runs, duration 120s
 - Solid-wave params from paper Sec.5.4/6.1 with $n{=}10$, $f{=}3$ (see `matrix.yaml`):
   Tusk $(\sigma,\kappa,\mathrm{ref},\mathrm{cov})=(1,2,7,7)$;
   DAG-Rider $(1,3,7,7)$;
@@ -530,9 +522,7 @@ python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11a
 python experiment_reproduced/experiment3/run_figure11.py
 ```
 
-##### Runtime and Output
-
-**Estimated runtime: ~6–8 hours** for Figure 11(a) alone (5 protocols × 6 rates × 2 runs = 60 cells at duration 120s, plus per-protocol checkout/build; `tusk`/`dag-rider` share one build). Running 11(a)+11(c) together: **~12–16 hours**.
+##### Output
 
 Summaries are synced to (**`*.txt` plot inputs only**):
 
@@ -567,7 +557,7 @@ the last $f=3$ nodes/clients are **not booted** (not the Experiment 2 attack).
 - Protocols: `tusk`, `dag-rider`, `manta`, `chitu`, `mahi-mahi`
 - Network: `geo` (same 6+3+1 WAN as 11(a))
 - Faults: 3 (silent)
-- Rates: $80{,}000$–$180{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+- Rates: $80000$–$180000$ tx/s (step $20000$), 2 runs, duration 120s
 - Same solid-wave params as 11(a) (see `matrix.yaml`)
 
 See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
@@ -578,9 +568,7 @@ See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
 ```
 
-##### Runtime and Output
-
-**Estimated runtime: ~6–8 hours** (5 protocols × 6 rates × 2 runs = 60 cells at duration 120s, plus per-protocol prepare if not already built from 11(a)).
+##### Output
 
 Summaries are synced to (**`*.txt` plot inputs only**):
 
@@ -608,7 +596,7 @@ cells from `matrix.yaml`. Table 2 resources are collected during the same runs.
 
 - Branch: `experiment4`
 - Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment4/wan/`)
-- Rates: $80{,}000$ / $100{,}000$ / $120{,}000$ tx/s, 2 runs, duration 120s
+- Rates: $80000$ / $100000$ / $120000$ tx/s, 2 runs, duration 120s
 - Complete: fast coin + solid commit + commit recheck on; spill trigger/cap 4
 - No-flexible: fast coin / solid commit / commit recheck off; spill trigger 2 / cap 1
 
@@ -622,9 +610,7 @@ python experiment_reproduced/experiment4/run_figure12.py
 # optional: --only-suite figure12_complete | figure12_noflexible
 ```
 
-#### Runtime and Output
-
-**Estimated runtime: ~1.5–2.5 hours** (2 variants × 3 rates × 2 runs = 12 cells at duration 120s, plus prepare; Table 2 is collected in the same runs).
+#### Output
 
 Plot/table inputs only are synced to:
 
@@ -664,9 +650,7 @@ python paper_data/graph_generated_code/experiment4/aggregate_table2_resources.py
   --output-dir experiment_reproduced/experiment4/results/Table2
 ```
 
-#### Runtime and Output
-
-**Estimated runtime:** included in §5.5 (~1.5–2.5 hours). Re-aggregation alone is seconds.
+#### Output
 
 ```text
 experiment_reproduced/experiment4/results/Table2/resource_summary.csv
