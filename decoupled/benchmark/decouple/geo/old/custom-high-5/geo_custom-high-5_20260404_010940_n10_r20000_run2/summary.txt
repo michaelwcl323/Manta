@@ -1,0 +1,38 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: geo
+ Workload tag: custom-high-5
+ Rate type: custom
+ Run index: 2/2
+ Run folder: geo_custom-high-5_20260404_010940_n10_r20000_run2
+ Custom percentages (raw): [1, 1, 1, 1, 30, 30, 30, 30, 30, 30]
+ Custom percentages (normalized): [0.54%, 0.54%, 0.54%, 0.54%, 16.30%, 16.30%, 16.30%, 16.30%, 16.30%, 16.30%]
+ Custom actual node loads (tx/s): [109, 109, 108, 108, 3261, 3261, 3261, 3261, 3261, 3261]
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 20,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 200 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 200 ms
+
+ + RESULTS:
+ Consensus TPS: 16,478 tx/s
+ Consensus BPS: 8,436,774 B/s
+ Consensus latency: 1,782 ms
+
+ End-to-end TPS: 16,406 tx/s
+ End-to-end BPS: 8,399,869 B/s
+ End-to-end latency: 2,174 ms
+-----------------------------------------

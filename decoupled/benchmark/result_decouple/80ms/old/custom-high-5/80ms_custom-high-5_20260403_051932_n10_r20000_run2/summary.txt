@@ -1,0 +1,38 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: 80ms
+ Workload tag: custom-high-5
+ Rate type: custom
+ Run index: 2/2
+ Run folder: 80ms_custom-high-5_20260403_051932_n10_r20000_run2
+ Custom percentages (raw): [1, 1, 1, 1, 30, 30, 30, 30, 30, 30]
+ Custom percentages (normalized): [0.54%, 0.54%, 0.54%, 0.54%, 16.30%, 16.30%, 16.30%, 16.30%, 16.30%, 16.30%]
+ Custom actual node loads (tx/s): [109, 109, 108, 108, 3261, 3261, 3261, 3261, 3261, 3261]
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 20,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 200 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 200 ms
+
+ + RESULTS:
+ Consensus TPS: 19,774 tx/s
+ Consensus BPS: 10,124,504 B/s
+ Consensus latency: 1,283 ms
+
+ End-to-end TPS: 19,711 tx/s
+ End-to-end BPS: 10,091,963 B/s
+ End-to-end latency: 1,597 ms
+-----------------------------------------

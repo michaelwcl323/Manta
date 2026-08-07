@@ -1,0 +1,35 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: geo_uniform
+ Workload tag: balanced
+ Rate type: balanced
+ Run index: 1/2
+ Run folder: geo_uniform_balanced_20260413_115453_n10_r120000_run1
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 120,000 tx/s
+ Transaction size: 512 B
+ Execution time: 119 s
+
+ Header size: 1,000 B
+ Max header delay: 50 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 82,475 tx/s
+ Consensus BPS: 42,227,428 B/s
+ Consensus latency: 4,128 ms
+
+ End-to-end TPS: 81,996 tx/s
+ End-to-end BPS: 41,981,811 B/s
+ End-to-end latency: 4,732 ms
+-----------------------------------------

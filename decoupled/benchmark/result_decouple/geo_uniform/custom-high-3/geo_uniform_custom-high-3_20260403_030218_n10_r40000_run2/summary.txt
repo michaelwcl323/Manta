@@ -1,0 +1,35 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: geo_uniform
+ Workload tag: custom-high-3
+ Rate type: custom
+ Run index: 2/2
+ Run folder: geo_uniform_custom-high-3_20260403_030218_n10_r40000_run2
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 40,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 200 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 200 ms
+
+ + RESULTS:
+ Consensus TPS: 21,808 tx/s
+ Consensus BPS: 11,165,908 B/s
+ Consensus latency: 1,543 ms
+
+ End-to-end TPS: 21,678 tx/s
+ End-to-end BPS: 11,099,014 B/s
+ End-to-end latency: 1,909 ms
+-----------------------------------------

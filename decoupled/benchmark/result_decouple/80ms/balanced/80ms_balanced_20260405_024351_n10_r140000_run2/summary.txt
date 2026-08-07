@@ -1,0 +1,35 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: 80ms
+ Workload tag: balanced
+ Rate type: balanced
+ Run index: 2/2
+ Run folder: 80ms_balanced_20260405_024351_n10_r140000_run2
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 140,000 tx/s
+ Transaction size: 512 B
+ Execution time: 102 s
+
+ Header size: 1,000 B
+ Max header delay: 200 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 200 ms
+
+ + RESULTS:
+ Consensus TPS: 71,816 tx/s
+ Consensus BPS: 36,769,557 B/s
+ Consensus latency: 12,072 ms
+
+ End-to-end TPS: 71,719 tx/s
+ End-to-end BPS: 36,720,248 B/s
+ End-to-end latency: 12,945 ms
+-----------------------------------------

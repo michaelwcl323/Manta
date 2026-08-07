@@ -1,0 +1,35 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Network tag: no-delay
+ Workload tag: balanced
+ Rate type: balanced
+ Run index: 1/2
+ Run folder: no-delay_balanced_20260408_005706_n10_r100000_run1
+ Faults: 0 node(s)
+ Committee size: 10 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 100,000 tx/s
+ Transaction size: 512 B
+ Execution time: 121 s
+
+ Header size: 1,000 B
+ Max header delay: 200 ms
+ GC depth: 50 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 200 ms
+
+ + RESULTS:
+ Consensus TPS: 90,978 tx/s
+ Consensus BPS: 46,580,864 B/s
+ Consensus latency: 754 ms
+
+ End-to-end TPS: 90,917 tx/s
+ End-to-end BPS: 46,549,610 B/s
+ End-to-end latency: 921 ms
+-----------------------------------------
