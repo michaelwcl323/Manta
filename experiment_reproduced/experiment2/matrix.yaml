@@ -1,0 +1,70 @@
+# Figure 10 reproduction matrix (Experiment 2).
+#
+# Flat manta protocol on branch `experiment2` (repo root = protocol tree).
+# Scenario switching is owned by the controller runner:
+#   1) suite (figure10a_10b | figure10c) -> design_tag / attack / load_tag
+#   2) network (geo only)                -> clear/setup tc-netem WAN once
+#   3) cell (sigma/kappa/reference[/coverage]) -> node_params + CloudLabBench
+
+branch: experiment2
+monorepo_name: manta-nsdi27
+
+network:
+  tag: geo
+  wan_profile: wan/cloudlab_settings_geo.json
+
+defaults:
+  rate: 100000
+  duration: 10
+  nodes: 10
+  workers: 1
+  tx_size: 512
+  node_params_base:
+    header_size: 1000
+    max_header_delay: 50
+    gc_depth: 200
+    sync_retry_delay: 1000
+    sync_retry_nodes: 7
+    batch_size: 500000
+    max_batch_delay: 50
+    allow_cross_step_weak_edges: false
+    enable_fast_coin: false
+    solid_commit_trigger_on_solid_step: false
+    enable_commit_recheck: false
+    fast_coin_candidate_threshold: 0
+    solid_candidate_threshold: 0
+    enable_adaptive_intermediate_spill: false
+    adaptive_intermediate_spill_trigger_digests: 2
+    adaptive_intermediate_spill_cap_digests: 1
+
+suites:
+  figure10a_10b:
+    figure: Figure10a_10b
+    design_tag: manta_experiment2
+    network_tag: geo
+    load_tag: balanced_50_50
+    attack_enabled: false
+    runs: 1
+    # coverage FIXED at 7 (paper), while reference sweeps
+    coverage: 7
+    sigma: [1, 2]
+    kappa: [2, 3, 4]
+    reference: [4, 7, 10]
+  figure10c:
+    figure: Figure10c
+    design_tag: experiment2_attack_final
+    network_tag: geo
+    load_tag: balanced_50_500000_50
+    attack_enabled: true
+    attack_start_secs: 5
+    attack_duration_secs: 1000
+    attack_group_size: 5
+    attack_limit_headers: false
+    attack_limit_certificates: true
+    sigma: 1
+    runs: 1
+    configs:
+      - {kappa: 2, reference: 4, coverage: 4}
+      - {kappa: 2, reference: 7, coverage: 7}
+      - {kappa: 3, reference: 7, coverage: 7}
+      - {kappa: 3, reference: 10, coverage: 10}

@@ -1,0 +1,98 @@
+# Figure 12 + Table 2 reproduction matrix (Experiment 4).
+#
+# Flat manta protocol on branch `experiment4` (repo root = protocol tree),
+# with CloudLabBench resource monitors for Table 2.
+#
+# Suites figure12_complete / figure12_noflexible run CloudLab cells.
+# Table 2 is aggregated from resource_usage_* collected during those runs
+# (no separate bench sweep).
+
+branch: experiment4
+monorepo_name: manta-nsdi27
+
+network:
+  tag: geo
+  wan_profile: wan/cloudlab_settings_geo.json
+
+defaults:
+  duration: 120
+  nodes: 10
+  workers: 1
+  tx_size: 512
+  runs: 2
+  rates: [80000, 100000, 120000]
+  sigma: 2
+  kappa: 2
+  reference: 4
+  coverage: 7
+  # Shared header/batch defaults (overridden per suite for complete vs noflexible).
+  node_params_shared:
+    header_size: 1000
+    max_header_delay: 100
+    gc_depth: 50
+    sync_retry_delay: 1000
+    sync_retry_nodes: 7
+    batch_size: 500000
+    max_batch_delay: 50
+    allow_cross_step_weak_edges: true
+    enable_adaptive_intermediate_spill: true
+    adaptive_intermediate_spill_trigger_digests: 2
+    adaptive_intermediate_spill_cap_digests: 1
+    fast_coin_candidate_threshold: 4
+    solid_candidate_threshold: 4
+
+suites:
+  figure12_complete:
+    figure: Figure12
+    variant: complete
+    design_tag: manta_complete
+    network_tag: geo
+    load_tag: balanced_100_50
+    enable_fast_coin: true
+    solid_commit_trigger_on_solid_step: true
+    enable_commit_recheck: true
+    # Match Fig11a manta node_params (spill trigger/cap 4).
+    node_params:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      allow_cross_step_weak_edges: true
+      enable_fast_coin: true
+      solid_commit_trigger_on_solid_step: true
+      enable_commit_recheck: true
+      enable_adaptive_intermediate_spill: true
+      adaptive_intermediate_spill_trigger_digests: 4
+      adaptive_intermediate_spill_cap_digests: 4
+      fast_coin_candidate_threshold: 4
+      solid_candidate_threshold: 4
+  figure12_noflexible:
+    figure: Figure12
+    variant: noflexible
+    design_tag: manta_data_forpaper3
+    network_tag: geo
+    load_tag: balanced_100_50
+    enable_fast_coin: false
+    solid_commit_trigger_on_solid_step: false
+    enable_commit_recheck: false
+    # Match Figure12 sample summaries (spill trigger 2 / cap 1).
+    node_params:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      allow_cross_step_weak_edges: true
+      enable_fast_coin: false
+      solid_commit_trigger_on_solid_step: false
+      enable_commit_recheck: false
+      enable_adaptive_intermediate_spill: true
+      adaptive_intermediate_spill_trigger_digests: 2
+      adaptive_intermediate_spill_cap_digests: 1
+      fast_coin_candidate_threshold: 4
+      solid_candidate_threshold: 4

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Plot complete Manta vs no-flexible-coin ablation (Figure 12).
 
-Complete: Manta rows from ``paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv``.
-No flexible coin: averages of summary ``*.txt`` under ``paper_data/original_data/Figure12/``.
+Complete (default): Manta rows from ``paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv``.
+When ``--complete-dir`` is set, average consensus TPS/latency from ``*.txt`` summaries
+(same as no-flexible) so reproduction does not depend on Figure11a CSV.
+
+No flexible coin: averages of summary ``*.txt`` under ``--noflexible-dir``
+(default ``paper_data/original_data/Figure12/``).
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import re
 from collections import defaultdict
@@ -56,10 +61,12 @@ def load_complete_manta(csv_path: Path, rates: list[int]) -> tuple[list[float], 
     return tps_out, lat_out
 
 
-def load_noflexible(txt_dir: Path, rates: list[int]) -> tuple[list[float], list[float]]:
-    """Average consensus TPS / latency over Figure12 summary files per input rate."""
+def load_summaries(txt_dir: Path, rates: list[int], label: str) -> tuple[list[float], list[float]]:
+    """Average consensus TPS / latency over summary ``*.txt`` files per input rate."""
     by_rate: dict[int, list[tuple[int, int]]] = defaultdict(list)
     for path in sorted(txt_dir.glob("*.txt")):
+        if path.name.endswith(".resource_usage_summary.txt"):
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for m in RE_BENCH.finditer(text):
             ir = int(m.group(1).replace(",", ""))
@@ -72,7 +79,7 @@ def load_noflexible(txt_dir: Path, rates: list[int]) -> tuple[list[float], list[
     for ir in rates:
         pairs = by_rate.get(ir)
         if not pairs:
-            raise ValueError(f"Missing no-flexible summaries for input_rate={ir} in {txt_dir}")
+            raise ValueError(f"Missing {label} summaries for input_rate={ir} in {txt_dir}")
         mean_tps = sum(p[0] for p in pairs) / len(pairs)
         mean_lat_s = (sum(p[1] for p in pairs) / len(pairs)) / 1000.0
         tps_out.append(mean_tps)
@@ -80,17 +87,57 @@ def load_noflexible(txt_dir: Path, rates: list[int]) -> tuple[list[float], list[
     return tps_out, lat_out
 
 
+def load_noflexible(txt_dir: Path, rates: list[int]) -> tuple[list[float], list[float]]:
+    return load_summaries(txt_dir, rates, "no-flexible")
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Plot Figure 12 complete vs no-flexible-coin")
+    p.add_argument(
+        "--complete-dir",
+        type=Path,
+        default=None,
+        help="Directory of complete-Manta summary *.txt (if omitted, use Figure11a CSV)",
+    )
+    p.add_argument(
+        "--complete-csv",
+        type=Path,
+        default=COMPLETE_CSV,
+        help="Fallback Figure11a CSV used when --complete-dir is omitted",
+    )
+    p.add_argument(
+        "--noflexible-dir",
+        type=Path,
+        default=NOFLEXIBLE_DIR,
+        help="Directory of no-flexible-coin summary *.txt",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for output PDFs",
+    )
+    return p.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     plt.rcdefaults()
     plt.rcParams["font.family"] = "DejaVu Sans"
     plt.rcParams["pdf.fonttype"] = 42
     plt.rcParams["ps.fonttype"] = 42
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = args.output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     input_rates = list(INPUT_RATES)
-    complete_tps, complete_latency_s = load_complete_manta(COMPLETE_CSV, input_rates)
-    noflexible_tps, noflexible_latency_s = load_noflexible(NOFLEXIBLE_DIR, input_rates)
+    if args.complete_dir is not None:
+        complete_tps, complete_latency_s = load_summaries(
+            args.complete_dir, input_rates, "complete"
+        )
+    else:
+        complete_tps, complete_latency_s = load_complete_manta(args.complete_csv, input_rates)
+    noflexible_tps, noflexible_latency_s = load_noflexible(args.noflexible_dir, input_rates)
 
     complete_tps_k = [v / 1000.0 for v in complete_tps]
     noflexible_tps_k = [v / 1000.0 for v in noflexible_tps]
@@ -185,7 +232,7 @@ def main() -> None:
         handletextpad=0.3,
     )
 
-    out_combined = OUT_DIR / "manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k.pdf"
+    out_combined = out_dir / "manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k.pdf"
     fig.savefig(out_combined, format="pdf", bbox_inches="tight", pad_inches=0)
 
     SEP_LEFT, SEP_BOTTOM, SEP_WIDTH, SEP_HEIGHT = 0.16, 0.18, 0.76, 0.74
@@ -211,7 +258,7 @@ def main() -> None:
     ax_lat.tick_params(axis="y", labelsize=TICK_FONTSIZE)
     ax_lat.grid(axis="y", linestyle=(0, (2, 2)), alpha=0.35, zorder=0)
     ax_lat.set_ylim(0, max(max(complete_latency_s), max(noflexible_latency_s)) * 1.22)
-    out_lat = OUT_DIR / "manta_consensus_latency_only_no_legend.pdf"
+    out_lat = out_dir / "manta_consensus_latency_only_no_legend.pdf"
     fig_lat.savefig(out_lat, format="pdf", bbox_inches="tight", pad_inches=0)
 
     fig_tps = plt.figure(figsize=(SINGLE_FIG_W, SINGLE_FIG_H))
@@ -233,7 +280,7 @@ def main() -> None:
     ax_tps.tick_params(axis="y", labelsize=TICK_FONTSIZE)
     ax_tps.grid(axis="y", linestyle=(0, (2, 2)), alpha=0.35, zorder=0)
     ax_tps.set_ylim(0, max(max(complete_tps_k), max(noflexible_tps_k)) * 1.18)
-    out_tps = OUT_DIR / "manta_consensus_throughput_only_no_legend.pdf"
+    out_tps = out_dir / "manta_consensus_throughput_only_no_legend.pdf"
     fig_tps.savefig(out_tps, format="pdf", bbox_inches="tight", pad_inches=0)
 
     separate_legend_handles = [
@@ -258,7 +305,7 @@ def main() -> None:
     bbox = legend.get_window_extent(fig_leg.canvas.get_renderer()).transformed(
         fig_leg.dpi_scale_trans.inverted()
     )
-    out_leg = OUT_DIR / "manta_consensus_legend_only.pdf"
+    out_leg = out_dir / "manta_consensus_legend_only.pdf"
     fig_leg.savefig(out_leg, format="pdf", bbox_inches=bbox, pad_inches=0)
 
     print(f"Wrote {out_combined}")

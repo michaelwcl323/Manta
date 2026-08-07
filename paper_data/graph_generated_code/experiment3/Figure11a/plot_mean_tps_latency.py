@@ -120,6 +120,28 @@ def collect() -> dict[str, dict[int, list[tuple[int, int]]]]:
 
 
 def main() -> None:
+    import argparse
+
+    global DATA_ROOT, OUT_DIR
+
+    parser = argparse.ArgumentParser(description="Plot Figure 11(a) mean TPS vs latency.")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=DATA_ROOT,
+        help="Directory of protocol folders or geo_consensus_tps_latency.csv "
+        "(default: paper_data/original_data/Figure11a).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for generated PDFs (default: results/regenerate_graphs).",
+    )
+    args = parser.parse_args()
+    DATA_ROOT = args.data_root
+    OUT_DIR = args.output_dir
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = DATA_ROOT / "geo_consensus_tps_latency.csv"
     if csv_path.exists():

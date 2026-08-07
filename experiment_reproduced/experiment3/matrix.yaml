@@ -1,0 +1,163 @@
+# Figure 11(a)/(c) reproduction matrix (Experiment 3).
+#
+# Each protocol variant is a separate git branch checked out to
+# $HOME/{flat_repo_name} on the controller and all replicas.
+#
+# Suites:
+#   figure11a — geo WAN, faults=0, rate sweep
+#   figure11c — geo WAN, silent faults=3 (last 3 nodes not booted)
+# Figure 11(b) is AWS-only and is not covered here.
+
+monorepo_name: manta-nsdi27
+
+variants:
+  tusk:
+    branch: tusk
+    flat_repo_name: manta-exp3-tusk
+    result_dir_11a: Tusk-result
+    result_dir_11c: tusk_faulty
+    node_params_11a:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 50
+    node_params_11c:
+      header_size: 1000
+      max_header_delay: 400
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 200
+  manta:
+    branch: manta
+    flat_repo_name: manta-exp3-manta
+    result_dir_11a: Manta-result
+    result_dir_11c: manta_faulty
+    node_params_11a:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 2
+      kappa: 2
+      reference: 4
+      coverage: 7
+      allow_cross_step_weak_edges: true
+      enable_fast_coin: true
+      solid_commit_trigger_on_solid_step: true
+      enable_commit_recheck: true
+      enable_adaptive_intermediate_spill: true
+      adaptive_intermediate_spill_trigger_digests: 4
+      adaptive_intermediate_spill_cap_digests: 4
+      fast_coin_candidate_threshold: 4
+      solid_candidate_threshold: 4
+    node_params_11c:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 2
+      kappa: 2
+      reference: 4
+      coverage: 7
+      allow_cross_step_weak_edges: true
+      enable_fast_coin: true
+      solid_commit_trigger_on_solid_step: true
+      enable_commit_recheck: true
+      enable_adaptive_intermediate_spill: true
+      adaptive_intermediate_spill_trigger_digests: 4
+      adaptive_intermediate_spill_cap_digests: 4
+      fast_coin_candidate_threshold: 4
+      solid_candidate_threshold: 4
+  chitu:
+    branch: chitu
+    flat_repo_name: manta-exp3-chitu
+    result_dir_11a: Chitu-results
+    result_dir_11c: chitu_faulty
+    node_params_11a:
+      header_size: 1000
+      max_header_delay: 200
+      gc_depth: 500
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 200
+    node_params_11c:
+      header_size: 1000
+      max_header_delay: 400
+      gc_depth: 500
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 200
+  mahi-mahi:
+    branch: mahi-mahi
+    flat_repo_name: manta-exp3-mahi-mahi
+    result_dir_11a: Mahi-mahi-result
+    result_dir_11c: mahi-mahi-faulty
+    node_params_11a:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 50
+    node_params_11c:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 4
+      batch_size: 500000
+      max_batch_delay: 50
+
+suites:
+  figure11a:
+    figure: Figure11a
+    faults: 0
+    network: geo
+    wan_profile: wan/cloudlab_settings_geo.json
+    design_tag_by_variant:
+      tusk: tusk_experiment3
+      manta: manta_data_forpaper3
+      chitu: chitu_experiment3
+      mahi-mahi: mahi_data_forpaper
+    network_tag: geo
+    load_tag: balanced
+    rates: [40000, 60000, 80000, 100000, 120000, 140000]
+    nodes: 10
+    workers: 1
+    tx_size: 512
+    duration: 10
+    runs: 1
+    rate_type: balanced
+  figure11c:
+    figure: Figure11c
+    faults: 3   # SILENT: last 3 nodes/clients not booted. NOT Exp2 attack.
+    network: geo
+    wan_profile: wan/cloudlab_settings_geo.json
+    design_tag_by_variant:
+      tusk: tusk_faulty
+      manta: manta-faulty
+      chitu: chitu_faulty
+      mahi-mahi: mahi-mahi-faulty
+    network_tag: geo
+    load_tag: balanced
+    rates: [80000, 100000, 120000, 140000, 160000, 180000]
+    nodes: 10
+    workers: 1
+    tx_size: 512
+    duration: 10
+    runs: 1
+    rate_type: balanced

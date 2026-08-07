@@ -106,6 +106,28 @@ def collect() -> dict[str, dict[int, list[tuple[int, int]]]]:
 
 
 def main() -> None:
+    import argparse
+
+    global DATA_ROOT, OUT_DIR
+
+    parser = argparse.ArgumentParser(description="Plot Figure 11(c) mean TPS vs latency (silent faults).")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=DATA_ROOT,
+        help="Directory of protocol folders with summary *.txt "
+        "(default: paper_data/original_data/Figure11c).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for generated PDFs (default: results/regenerate_graphs).",
+    )
+    args = parser.parse_args()
+    DATA_ROOT = args.data_root
+    OUT_DIR = args.output_dir
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     raw = collect()
     # mean consensus TPS & mean consensus latency per (protocol, input_rate)

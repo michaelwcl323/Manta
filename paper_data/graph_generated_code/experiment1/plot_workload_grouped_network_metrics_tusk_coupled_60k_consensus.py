@@ -349,9 +349,34 @@ def plot_combo_metrics(output_paths: list[Path]):
 
 
 def main():
+    import argparse
+
+    global DATA_ROOT
+
+    parser = argparse.ArgumentParser(description="Plot Figure 9(b) from summary txt files.")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=DATA_ROOT,
+        help="Directory of flat summary *.txt files (default: paper_data/original_data/Figure9b).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for generated PDFs/PNGs (default: results/regenerate_graphs).",
+    )
+    args = parser.parse_args()
+
+    DATA_ROOT = args.data_root
+    output_paths = [
+        args.output_dir / "workload_grouped_network_metrics_tusk_coupled_60k_consensus.pdf",
+        args.output_dir / "workload_grouped_network_metrics_tusk_coupled_60k_consensus.png",
+    ]
+
     _set_academic_style()
-    rows = plot_combo_metrics(OUTPUT_PATHS)
-    for output_path in OUTPUT_PATHS:
+    rows = plot_combo_metrics(output_paths)
+    for output_path in output_paths:
         print(f"Saved workload-grouped consensus metrics plot to: {output_path}")
     for row in rows:
         print(

@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 cloudlab.pem
 cloudlab.jwt
+
+# Nested git history (do not re-add)
+0ther/manta_yu/.git/

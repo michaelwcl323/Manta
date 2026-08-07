@@ -1,0 +1,63 @@
+# Figure 9 reproduction matrix (Experiment 1).
+#
+# Scenario switching is owned by the controller runner:
+#   1) variant  (coupled | decoupled)  -> flat remote tree under $HOME/manta-exp1-{variant}
+#   2) network  (80ms | geo)           -> clear/setup tc-netem WAN profile
+#      80ms = paper N1 uniform RTT 80ms; geo = paper N2 6+3+1, intra=0
+#      controller is never in WAN peers (controller↔replica delay = 0)
+#   3) workload (balanced | custom-*)  -> only bench_params change (no reinstall)
+
+branch: experiment1
+monorepo_name: manta-nsdi27
+
+variants:
+  decoupled:
+    figure: Figure9a
+    flat_repo_name: manta-exp1-decoupled
+    monorepo_subdir: decoupled
+    rate: 100000
+    runs: 2
+    duration: 60
+    nodes: 10
+    node_params:
+      header_size: 1000
+      max_header_delay: 200
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 200
+  coupled:
+    figure: Figure9b
+    flat_repo_name: manta-exp1-coupled
+    monorepo_subdir: coupled
+    rate: 60000
+    runs: 1
+    duration: 120
+    nodes: 10
+    node_params:
+      header_size: 1000
+      max_header_batches: 1
+      max_header_delay: 50
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+
+networks:
+  - tag: 80ms
+    wan_profile: wan/cloudlab_settings_80ms.json
+  - tag: geo
+    wan_profile: wan/cloudlab_settings_geo.json
+
+workloads:
+  - tag: balanced
+    rate_type: balanced
+    percentages: null
+  - tag: custom-high-3
+    rate_type: custom
+    percentages: [1, 1, 1, 1, 6, 6, 6, 6, 6, 6]
+  - tag: custom-high-5
+    rate_type: custom
+    percentages: [1, 1, 1, 1, 30, 30, 30, 30, 30, 30]

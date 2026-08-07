@@ -351,99 +351,199 @@ Each command succeeds if the corresponding PDF is created and the script prints 
 
 ### 4.4 Experiment 4
 
-Plotting code for Experiment 4 lives in `paper_data/graph_generated_code/experiment4/`.
+Plotting / aggregation code for Experiment 4 lives in
+`paper_data/graph_generated_code/experiment4/`.
 
 #### Figure 12
 
-Compare complete Manta against the no-flexible-coin ablation at input rates $80{,}000$, $100{,}000$, and $120{,}000$ tx/s.
+Compare complete Manta against the no-flexible-coin ablation at input rates
+$80{,}000$, $100{,}000$, and $120{,}000$ tx/s.
 
-- **complete**: Manta rows from `paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv`
-- **no flexible coin**: averages of summary `*.txt` files in `paper_data/original_data/Figure12/`
+- **complete** (default): Manta rows from
+  `paper_data/original_data/Figure11a/geo_consensus_tps_latency.csv`
+- **complete** (reproduction): pass `--complete-dir` with summary `*.txt` averages
+- **no flexible coin**: averages of summary `*.txt` under `--noflexible-dir`
+  (default `paper_data/original_data/Figure12/`)
 
 ```bash
-cd paper_data/graph_generated_code/experiment4
-python3 plot_manta_consensus_tps_latency.py
+# paper original data (Figure11a CSV + Figure12 txts)
+python3 paper_data/graph_generated_code/experiment4/plot_manta_consensus_tps_latency.py
+
+# after CloudLab reproduction
+python3 paper_data/graph_generated_code/experiment4/plot_manta_consensus_tps_latency.py \
+  --complete-dir experiment_reproduced/experiment4/results/Figure12/complete \
+  --noflexible-dir experiment_reproduced/experiment4/results/Figure12/noflexible \
+  --output-dir results/regenerate_graphs
 ```
 
 Output:
 
 ```text
+results/regenerate_graphs/manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k.pdf
 results/regenerate_graphs/manta_consensus_latency_only_no_legend.pdf
 results/regenerate_graphs/manta_consensus_throughput_only_no_legend.pdf
 results/regenerate_graphs/manta_consensus_legend_only.pdf
 ```
 
-The command succeeds if the corresponding PDFs are created and the script prints the output paths.
+#### Table 2
+
+```bash
+python3 paper_data/graph_generated_code/experiment4/aggregate_table2_resources.py \
+  --per-run-csv experiment_reproduced/experiment4/results/Table2/resource_summary.csv \
+  --output-dir experiment_reproduced/experiment4/results/Table2
+```
+
+The command succeeds if the corresponding PDFs/CSVs are created and the script
+prints the output paths.
 
 ## 5. Reproducing the Paper Results
 
 ### 5.1 Experiment Overview
 
-| Experiment ID | Paper Result | Platform |
-|---|---|---|
-| `figure9` | Figure 9 | CloudLab |
-| `figure10a` | Figure 10(a) | CloudLab |
-| `figure10b` | Figure 10(b) | CloudLab |
-| `figure10c` | Figure 10(c) | CloudLab |
-| `figure11a` | Figure 11(a) | CloudLab |
-| `figure11b` | Figure 11(b) | AWS |
-| `figure11c` | Figure 11(c) | CloudLab |
-| `figure12` | Figure 12 | CloudLab |
-| `table2` | Table 2 | CloudLab |
+Estimated runtimes below are wall-clock for the reproduction commands in this section (controller prepare/build + all bench cells), based on the default `matrix.yaml` settings. They **exclude** CloudLab portal instantiate / bootstrap / deploy (§3), which is typically another **~1–2 hours** once per cluster.
+
+| Experiment ID | Paper Result | Platform | Est. runtime |
+|---|---|---|---|
+| `figure9` | Figure 9 | CloudLab | ~2–3 hours |
+| `figure10a` / `figure10b` / `figure10c` | Figure 10 | CloudLab | ~2.5–4 hours (one `run_figure10.py`) |
+| `figure11a` | Figure 11(a) | CloudLab | ~5–7 hours |
+| `figure11b` | Figure 11(b) | AWS | — |
+| `figure11c` | Figure 11(c) | CloudLab | ~5–7 hours |
+| `figure12` / `table2` | Figure 12 + Table 2 | CloudLab | ~1.5–2.5 hours (one `run_figure12.py`) |
+
+Running both Figure 11(a) and 11(c) in one `run_figure11.py` invocation takes about **~10–14 hours**.
 
 ### 5.2 E1: Impact of Heterogeneity — Figure 9
 
+Controller-driven reproduction lives under `experiment_reproduced/experiment1/`.
+It uses the `experiment1` branch (`coupled/` + `decoupled/`). This laptop only
+SSHs to the **controller**; the controller drives all replica nodes and switches
+scenarios (variant / network / workload).
+
 #### Configuration
+
+- Branch: `experiment1`
+- Figure 9(a): `decoupled`, $100{,}000$ tx/s, header/batch delay $200$ ms
+- Figure 9(b): `coupled`, $60{,}000$ tx/s, `max_header_batches=1`, delays $50$ ms
+- Networks: `80ms`, `geo`
+- Workloads: `balanced`, `custom-high-3`, `custom-high-5`
+
+See `experiment_reproduced/experiment1/matrix.yaml` and `README.md`.
 
 #### Command
 
+```bash
+# CloudLab up + Getting Started first (see Section 3)
+python experiment_reproduced/experiment1/run_figure9.py
+```
+
 #### Runtime and Output
+
+**Estimated runtime: ~2–3 hours** (18 cells: Figure 9(a) = 2 networks × 3 workloads × 2 runs at 60s; Figure 9(b) = 2 × 3 × 1 run at 120s; plus controller prepare for coupled/decoupled trees and WAN profile switches).
+
+Summaries are synced to (**`*.txt` plot inputs only**):
+
+```text
+experiment_reproduced/experiment1/results/Figure9a/
+experiment_reproduced/experiment1/results/Figure9b/
+```
+
+`run_figure9.py` then **directly calls** the Figure 9 plot scripts (same as §4.1) and
+writes PDFs/PNGs under `results/regenerate_graphs/`. Use `--skip-plot` to skip.
 
 #### Expected Result
 
+PDFs under `results/regenerate_graphs/` matching the paper Figure 9 workload/network grouping.
+
 ### 5.3 E2: Parameter Trade-offs — Figure 10
 
-#### Figure 10(a): Effect of `σ` and `ref`
+Controller-driven reproduction lives under `experiment_reproduced/experiment2/`.
+It uses the `experiment2` branch (flat manta protocol at repo root). This laptop
+only SSHs to the **controller**; the controller drives all replica nodes, applies
+the geo WAN profile once, and sweeps parameter cells from `matrix.yaml`.
 
-##### Configuration
+#### Configuration
 
-##### Command
+- Branch: `experiment2`
+- Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment2/wan/`)
+- Figure 10(a)/(b): `σ∈{1,2}`, `κ∈{2,3,4}`, `ref∈{4,7,10}`, coverage fixed at 7, 1 run, $100{,}000$ tx/s (18 cells)
+- Figure 10(c): certificate-limiting attack from $t=60$s; four `(κ, ref, coverage)` configs (4 cells)
 
-##### Runtime and Output
+See `experiment_reproduced/experiment2/matrix.yaml` and `README.md`.
 
-##### Expected Result
+#### Command
 
-#### Figure 10(b): Effect of `κ`
+```bash
+# CloudLab up + Getting Started first (see Section 3)
+python experiment_reproduced/experiment2/run_figure10.py
+# optional: --only-suite figure10a_10b | figure10c
+```
 
-##### Configuration
+#### Runtime and Output
 
-##### Command
+**Estimated runtime: ~2.5–4 hours** for the full matrix (22 cells × ~4 min wall-clock each at duration 120s, plus first-time prepare/build and geo WAN setup). Suites alone: Figure 10(a)/(b) ~2–3 hours; Figure 10(c) ~20–40 minutes.
 
-##### Runtime and Output
+Plot inputs only are synced to:
 
-##### Expected Result
+```text
+experiment_reproduced/experiment2/results/Figure10a_10b/consensus_summary.csv
+experiment_reproduced/experiment2/results/Figure10c/{k2-ref4,k2-ref7,k3-ref7,k3-ref10}/latency.csv
+```
 
-#### Figure 10(c): Byzantine Robustness
+`run_figure10.py` then **directly calls** the Figure 10 plot scripts (same as §4.2) and
+writes PDFs/PNGs under `results/regenerate_graphs/`. Use `--skip-plot` to skip.
 
-##### Configuration
+#### Expected Result
 
-##### Command
-
-##### Runtime and Output
-
-##### Expected Result
+PDFs under `results/regenerate_graphs/` matching paper Figure 10(a)–(c)
+(`latency_by_kappa_sigma_reference`, `reference_impact_kappa2_by_sigma`,
+`attack_latency_timeseries_overlay_mean`).
 
 ### 5.4 E3: Performance Comparison — Figure 11
 
 #### Figure 11(a): 10-Replica Fault-Free Performance
 
+Controller-driven reproduction lives under `experiment_reproduced/experiment3/`.
+It checks out each protocol branch (`tusk`, `manta`, `chitu`, `mahi-mahi`) into a
+flat tree `$HOME/manta-exp3-{protocol}` on the controller and replicas. This
+laptop only SSHs to the **controller**.
+
 ##### Configuration
+
+- Protocols: `tusk`, `manta`, `chitu`, `mahi-mahi`
+- Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment3/wan/`)
+- Faults: 0
+- Rates: $40{,}000$–$140{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+
+See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
 ##### Command
 
+```bash
+# CloudLab up + Getting Started first (see Section 3)
+python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11a
+# or both 11(a) and 11(c):
+python experiment_reproduced/experiment3/run_figure11.py
+```
+
 ##### Runtime and Output
 
+**Estimated runtime: ~5–7 hours** for Figure 11(a) alone (4 protocols × 6 rates × 2 runs = 48 cells at duration 120s, plus per-protocol checkout/build). Running 11(a)+11(c) together: **~10–14 hours**.
+
+Summaries are synced to (**`*.txt` plot inputs only**):
+
+```text
+experiment_reproduced/experiment3/results/Figure11a/
+  Tusk-result/  Manta-result/  Chitu-results/  Mahi-mahi-result/
+```
+
+`run_figure11.py` then **directly calls** the Figure 11(a) plot script (same as §4.3)
+and writes PDFs under `results/regenerate_graphs/`. Use `--skip-plot` to skip.
+
 ##### Expected Result
+
+PDF under `results/regenerate_graphs/` matching paper Figure 11(a)
+(`631_consensus_tps_vs_consensus_latency` / companion legend).
 
 #### Figure 11(b): 50-Replica Large-Scale Performance
 
@@ -454,33 +554,124 @@ environment setup, execution commands, runtime, output, and expected result.
 
 #### Figure 11(c): Performance under Silent Faults
 
+Same package as 11(a) (`experiment_reproduced/experiment3/`). Silent faults mean
+the last $f=3$ nodes/clients are **not booted** (not the Experiment 2 attack).
+
 ##### Configuration
+
+- Protocols: `tusk`, `manta`, `chitu`, `mahi-mahi`
+- Network: `geo` (same 6+3+1 WAN as 11(a))
+- Faults: 3 (silent)
+- Rates: $80{,}000$–$180{,}000$ tx/s (step $20{,}000$), 2 runs, duration 120s
+
+See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
 ##### Command
 
+```bash
+python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
+```
+
 ##### Runtime and Output
+
+**Estimated runtime: ~5–7 hours** (4 protocols × 6 rates × 2 runs = 48 cells at duration 120s, plus per-protocol prepare if not already built from 11(a)).
+
+Summaries are synced to (**`*.txt` plot inputs only**):
+
+```text
+experiment_reproduced/experiment3/results/Figure11c/
+  tusk_faulty/  manta_faulty/  chitu_faulty/  mahi-mahi-faulty/
+```
+
+`run_figure11.py` then **directly calls** the Figure 11(c) plot script (same as §4.3)
+and writes PDFs under `results/regenerate_graphs/`. Use `--skip-plot` to skip.
 
 ##### Expected Result
 
+PDF under `results/regenerate_graphs/` matching paper Figure 11(c) (`faulty_graph`).
+
 ### 5.5 E4: Flexible-Coin Ablation — Figure 12
+
+Controller-driven reproduction lives under `experiment_reproduced/experiment4/`.
+It uses the `experiment4` branch (flat manta protocol at repo root, with resource
+monitors). This laptop only SSHs to the **controller**; the controller drives all
+replica nodes, applies the geo WAN once, and runs complete vs no-flexible-coin
+cells from `matrix.yaml`. Table 2 resources are collected during the same runs.
 
 #### Configuration
 
+- Branch: `experiment4`
+- Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment4/wan/`)
+- Rates: $80{,}000$ / $100{,}000$ / $120{,}000$ tx/s, 2 runs, duration 120s
+- Complete: fast coin + solid commit + commit recheck on; spill trigger/cap 4
+- No-flexible: fast coin / solid commit / commit recheck off; spill trigger 2 / cap 1
+
+See `experiment_reproduced/experiment4/matrix.yaml` and `README.md`.
+
 #### Command
+
+```bash
+# CloudLab up + Getting Started first (see Section 3)
+python experiment_reproduced/experiment4/run_figure12.py
+# optional: --only-suite figure12_complete | figure12_noflexible
+```
 
 #### Runtime and Output
 
+**Estimated runtime: ~1.5–2.5 hours** (2 variants × 3 rates × 2 runs = 12 cells at duration 120s, plus prepare; Table 2 is collected in the same runs).
+
+Plot/table inputs only are synced to:
+
+```text
+experiment_reproduced/experiment4/results/Figure12/complete/*.txt
+experiment_reproduced/experiment4/results/Figure12/noflexible/*.txt
+experiment_reproduced/experiment4/results/Table2/{resource_summary,table2_mean_over_runs}.csv
+```
+
+`run_figure12.py` then **directly calls** the Figure 12 plot script (same as §4.4)
+and prints Table 2 means. Use `--skip-plot` to skip.
+
 #### Expected Result
+
+PDFs under `results/regenerate_graphs/` matching paper Figure 12
+(`manta_consensus_tps_latency_bar_csv_vs_without_80k_100k_120k` and companions).
 
 ### 5.6 E5: Resource Utilization — Table 2
 
+Table 2 is produced by the same Experiment 4 package (`run_figure12.py`). During
+each Figure 12 CloudLab cell, `CloudLabBench` records per-host CPU and bandwidth
+into `resource_usage_summary.txt`; the orchestrator averages across hosts and
+runs into `results/Table2/`.
+
 #### Configuration
+
+Same as §5.5 (complete + noflexible at 80k/100k/120k on geo). No separate bench
+sweep is required.
 
 #### Command
 
+```bash
+python experiment_reproduced/experiment4/run_figure12.py
+# or re-aggregate only:
+python paper_data/graph_generated_code/experiment4/aggregate_table2_resources.py \
+  --per-run-csv experiment_reproduced/experiment4/results/Table2/resource_summary.csv \
+  --output-dir experiment_reproduced/experiment4/results/Table2
+```
+
 #### Runtime and Output
 
+**Estimated runtime:** included in §5.5 (~1.5–2.5 hours). Re-aggregation alone is seconds.
+
+```text
+experiment_reproduced/experiment4/results/Table2/resource_summary.csv
+experiment_reproduced/experiment4/results/Table2/table2_mean_over_runs.csv
+experiment_reproduced/experiment4/results/Table2/table2.md
+```
+
 #### Expected Result
+
+Mean CPU (%) and RX/TX (Mbps) per variant×rate matching paper Table 2 trends
+(complete vs no-flexible-coin under the same geo load).
 
 
 ## 6. Troubleshooting

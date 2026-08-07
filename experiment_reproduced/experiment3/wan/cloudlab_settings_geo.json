@@ -1,0 +1,25 @@
+{
+  "cloudlab_wan": {
+    "comment": "Paper N2 (heterogeneous / geo): 3 clusters 6+3+1 (60%/30%/10%). Intra-cluster RTT = 0. Inter-cluster RTTs are 2× paper one-way delays: A–B 51.3 → 103, B–C 76.6 → 153, A–C 117.15 → 234 (CloudLabWan applies RTT/2 ≈ 51/77/117 ms OWD). Hosts 1–6 = A, 7–9 = B, 10 = C. Controller is never in hosts/peers (delay 0); TCP/22 excluded.",
+    "rtt_ms": {
+      "cluster_a,cluster_a": 0,
+      "cluster_b,cluster_b": 0,
+      "cluster_c,cluster_c": 0,
+      "cluster_a,cluster_b": 103,
+      "cluster_b,cluster_c": 153,
+      "cluster_a,cluster_c": 234
+    },
+    "site_by_host_index": [
+      "cluster_a",
+      "cluster_a",
+      "cluster_a",
+      "cluster_a",
+      "cluster_a",
+      "cluster_a",
+      "cluster_b",
+      "cluster_b",
+      "cluster_b",
+      "cluster_c"
+    ]
+  }
+}
