@@ -5,7 +5,8 @@ protocols (`tusk`, `manta`, `chitu`, `mahi-mahi`). **Only the CloudLab controlle
 is contacted from this laptop**; the controller SSHs to replica hosts.
 
 Figure 11(b) (50 replicas) is AWS-only and is **not** covered here — see
-`aws/README.md`.
+`aws/README.md`. Protocol code lives on branch `experiment3`
+under `manta/`.
 
 ## Layout
 

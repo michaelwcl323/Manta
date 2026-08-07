@@ -6,7 +6,7 @@ This repository contains the artifact for the paper:
 
 > **MANTA: Unlocking DAG Flexibility in Asynchronous BFT**
 
-The artifact includes the Manta implementation, a scalability-oriented Manta implementation, and the Tusk, DAG-Rider, Mahi-Mahi, and Chitu baselines used in the paper.
+The artifact includes the Manta, Tusk, DAG-Rider, Mahi-Mahi, and Chitu baselines used in the paper.
 
 Each implementation is maintained in a separate Git branch. This `artifact-evaluation` branch contains the evaluation instructions, experiment configurations, orchestration scripts, and paper results.
 
@@ -47,8 +47,6 @@ The test passes if it ends with:
 ```text
 [functional-test] manta: RUNNING
 [functional-test] manta: PASS
-[functional-test] manta-scalable: RUNNING
-[functional-test] manta-scalable: PASS
 [functional-test] tusk: RUNNING
 [functional-test] tusk: PASS
 [functional-test] mahi-mahi: RUNNING
@@ -547,7 +545,8 @@ PDF under `results/regenerate_graphs/` matching paper Figure 11(a)
 
 #### Figure 11(b): 50-Replica Large-Scale Performance
 
-Figure 11(b) is reproduced using the 50-replica AWS deployment.
+Figure 11(b) is reproduced using the 50-replica AWS deployment on branch
+`experiment3` (protocol tree under `manta/`).
 
 See the separate [AWS large-scale experiment README](aws/README.md) for the
 environment setup, execution commands, runtime, output, and expected result.

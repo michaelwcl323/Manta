@@ -25,7 +25,6 @@ from pathlib import Path
 
 IMPLEMENTATION_BRANCHES = {
     "manta": "manta",
-    "manta-scalable": "manta-scalable-version",
     "tusk": "tusk",
     "mahi-mahi": "mahi-mahi",
     "chitu": "chitu",
