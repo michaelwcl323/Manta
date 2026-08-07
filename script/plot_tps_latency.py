@@ -40,6 +40,7 @@ if __name__ == '__main__':
     print("E2E TPS averaged:", data['e2e_tps'])
     print("Latency averaged:", data['latency'])
 
+    # 根据Attack分类，得到attack_data和non_attack_data
     attack_data = {
         'rate': [],
         'e2e_tps': [],
@@ -62,6 +63,7 @@ if __name__ == '__main__':
     print("Attack data:", attack_data)
     print("Non-attack data:", non_attack_data)
 
+    # 绘制 tps-latency 图
     plt.figure(figsize=(8,6))
     plt.scatter(attack_data['e2e_tps'], attack_data['latency'], color='red', label='Attack', marker='x')
     plt.scatter(non_attack_data['e2e_tps'], non_attack_data['latency'], color='blue', label='No Attack', marker='o')
@@ -73,6 +75,8 @@ if __name__ == '__main__':
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
 
+    # 在无图形界面的环境中（例如终端、远程环境），plt.show() 不会弹窗，
+    # 改为保存成图片文件，方便在 IDE 里直接打开查看。
     workspace_path = Path(__file__).parent.parent
     output_dir = workspace_path / 'script' / 'plots'
     output_dir.mkdir(parents=True, exist_ok=True)

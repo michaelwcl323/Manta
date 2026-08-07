@@ -1,6 +1,7 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
-use config::{Committee, WorkerId};
+use config::{Committee, Stake, WorkerId};
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
@@ -27,6 +28,11 @@ pub struct Header {
     /// Stores the merged solid-wave vertices computed from parents at header creation time.
     /// This preserves the union even when `solid_wave_vertices` is re-initialized on wave-end rounds.
     pub solid_wave_vertices_merged: HashSet<Digest>,
+    /// The tracked round whose authors are reachable through this header.
+    pub wave_back_link_target_round: Round,
+    /// A bitmap over committee order indicating which tracked-round authors are
+    /// reachable through this header.
+    pub wave_back_link_author_bitmap: Vec<u8>,
 }
 
 impl Header {
@@ -48,6 +54,8 @@ impl Header {
             solid_step_vertices_merged: HashSet::new(),
             solid_wave_vertices: HashSet::new(),
             solid_wave_vertices_merged: HashSet::new(),
+            wave_back_link_target_round: 0,
+            wave_back_link_author_bitmap: Vec::new(),
         };
         let id = header.digest();
         let signature = signature_service.request_signature(id.clone()).await;
@@ -94,6 +102,11 @@ impl Header {
     pub fn store_solid_wave_merged_vertices(&mut self, vertices: HashSet<Digest>) {
         self.solid_wave_vertices_merged.extend(vertices);
     }
+
+    pub fn store_wave_back_link_summary(&mut self, target_round: Round, bitmap: Vec<u8>) {
+        self.wave_back_link_target_round = target_round;
+        self.wave_back_link_author_bitmap = bitmap;
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -101,6 +114,8 @@ pub struct ProposalParents {
     pub parents: Vec<Digest>,
     pub solid_step_union: HashSet<Digest>,
     pub solid_wave_union: HashSet<Digest>,
+    pub wave_back_link_target_round: Round,
+    pub wave_back_link_author_bitmap: Vec<u8>,
 }
 
 impl From<Vec<Digest>> for ProposalParents {
@@ -109,8 +124,44 @@ impl From<Vec<Digest>> for ProposalParents {
             parents,
             solid_step_union: HashSet::new(),
             solid_wave_union: HashSet::new(),
+            wave_back_link_target_round: 0,
+            wave_back_link_author_bitmap: Vec::new(),
         }
     }
+}
+
+pub(crate) fn set_author_bit(bitmap: &mut Vec<u8>, index: usize) {
+    let byte_index = index / 8;
+    let bit_index = index % 8;
+    if bitmap.len() <= byte_index {
+        bitmap.resize(byte_index + 1, 0);
+    }
+    bitmap[byte_index] |= 1u8 << bit_index;
+}
+
+pub(crate) fn merge_author_bitmaps(bitmap: &mut Vec<u8>, incoming: &[u8]) {
+    if bitmap.len() < incoming.len() {
+        bitmap.resize(incoming.len(), 0);
+    }
+    for (dst, src) in bitmap.iter_mut().zip(incoming.iter()) {
+        *dst |= *src;
+    }
+}
+
+pub(crate) fn author_bitmap_stake(committee: &Committee, bitmap: &[u8]) -> Stake {
+    committee
+        .authorities
+        .keys()
+        .enumerate()
+        .filter(|(index, _)| {
+            let byte_index = index / 8;
+            let bit_index = index % 8;
+            bitmap
+                .get(byte_index)
+                .is_some_and(|byte| byte & (1u8 << bit_index) != 0)
+        })
+        .map(|(_, author)| committee.stake(author))
+        .sum()
 }
 
 impl Hash for Header {

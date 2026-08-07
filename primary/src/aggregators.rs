@@ -1,5 +1,8 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, ProposalParents, Vote};
+use crate::messages::{
+    merge_author_bitmaps, set_author_bit, Certificate, Header, ProposalParents, Vote,
+};
 use crate::primary::Round;
 use config::{Committee, Stake};
 use crypto::Hash as _;
@@ -73,6 +76,11 @@ pub struct CertificatesAggregator {
     /// Last computed union of parents' solid_step_vertices_merged on solid rounds
     /// (for debug / final_dag display).
     last_union_set: Option<Vec<Digest>>,
+    /// The round whose reachable authors are tracked for the proposal round.
+    back_link_target_round: Round,
+    /// Bitmap over committee order for tracked-round authors reachable through
+    /// the current parent set.
+    back_link_author_bitmap: Vec<u8>,
 }
 
 impl CertificatesAggregator {
@@ -89,6 +97,8 @@ impl CertificatesAggregator {
             solid_step_union: HashSet::new(),
             solid_wave_union: HashSet::new(),
             last_union_set: None,
+            back_link_target_round: 0,
+            back_link_author_bitmap: Vec::new(),
         }
     }
 
@@ -119,6 +129,31 @@ impl CertificatesAggregator {
         }
     }
 
+    fn extend_back_link_bitmap(
+        &mut self,
+        certificate: &Certificate,
+        committee: &Committee,
+        target_round: Round,
+    ) {
+        if target_round == 0 {
+            return;
+        }
+        if self.back_link_author_bitmap.is_empty() {
+            self.back_link_author_bitmap = vec![0; committee.authority_bitmap_len()];
+        }
+        if certificate.round() == target_round {
+            if let Some(index) = committee.authority_index(&certificate.origin()) {
+                set_author_bit(&mut self.back_link_author_bitmap, index);
+            }
+        }
+        if certificate.header.wave_back_link_target_round == target_round {
+            merge_author_bitmaps(
+                &mut self.back_link_author_bitmap,
+                &certificate.header.wave_back_link_author_bitmap,
+            );
+        }
+    }
+
     pub fn append(
         &mut self,
         certificate: Certificate,
@@ -131,21 +166,24 @@ impl CertificatesAggregator {
             return Ok(None);
         }
 
-        // Accept parents from the whole solid-wave window, but only the newer
-        // solid-step sub-window contributes to processing/solid-step checks.
+        // Accept strong parents from the previous round. Weak parents always
+        // remain available inside the current solid step; optionally they may
+        // extend into earlier solid steps that still lie inside the current
+        // solid-wave window.
         let current_round = self.expected_round + 1;
-        let step_len = committee.solid_step_length();
-        let wave_len = committee.solid_wave_length();
-        let step_index: Round = ((current_round - 1) % step_len) + 1;
-        let wave_index: Round = ((current_round - 1) % wave_len) + 1;
-        let regular_weak_start: Round = current_round.saturating_sub(step_index);
-        let commit_weak_start: Round = current_round.saturating_sub(wave_index);
+        let regular_weak_start = committee.solid_step_parent_start(current_round);
+        let cross_step_weak_start = committee.cross_step_weak_parent_start(current_round);
+        let back_link_target_round = committee
+            .wave_back_link_tracking_round(current_round)
+            .unwrap_or(0);
 
         // Add the certificate to the appropriate list.
         if certificate.round() == self.expected_round {
             self.certificates.push(certificate.digest());
             self.extend_step_union(&certificate);
             self.extend_wave_union(&certificate);
+            self.back_link_target_round = back_link_target_round;
+            self.extend_back_link_bitmap(&certificate, committee, back_link_target_round);
             self.weight += committee.stake(&origin);
         } else if certificate.round() >= regular_weak_start
             && certificate.round() < self.expected_round
@@ -154,21 +192,25 @@ impl CertificatesAggregator {
             self.weak_certificates.push(certificate.digest());
             self.extend_step_union(&certificate);
             self.extend_wave_union(&certificate);
-        } else if certificate.round() >= commit_weak_start
+            self.back_link_target_round = back_link_target_round;
+            self.extend_back_link_bitmap(&certificate, committee, back_link_target_round);
+        } else if certificate.round() >= cross_step_weak_start
             && certificate.round() < regular_weak_start
         {
             self.certificates.push(certificate.digest());
             self.weak_certificates.push(certificate.digest());
             self.extend_wave_union(&certificate);
+            self.back_link_target_round = back_link_target_round;
+            self.extend_back_link_bitmap(&certificate, committee, back_link_target_round);
         } else {
             return Ok(None);
         }
         debug!(
-            "Current round: {}, regular weak range: [{}..={}), commit-only weak range: [{}..={})",
+            "Current round: {}, regular weak range: [{}..={}), cross-step weak range: [{}..={})",
             current_round,
             regular_weak_start,
             self.expected_round,
-            commit_weak_start,
+            cross_step_weak_start,
             regular_weak_start
         );
 
@@ -213,6 +255,8 @@ impl CertificatesAggregator {
             let mut proposal_parents = ProposalParents::from(self.certificates.clone());
             proposal_parents.solid_step_union = self.solid_step_union.clone();
             proposal_parents.solid_wave_union = self.solid_wave_union.clone();
+            proposal_parents.wave_back_link_target_round = self.back_link_target_round;
+            proposal_parents.wave_back_link_author_bitmap = self.back_link_author_bitmap.clone();
             // if self.quorum_reached_time.unwrap().elapsed() >= self.wait_duration || self.weight >= committee.max_threshold() {
             return Ok(Some(proposal_parents));
             // }

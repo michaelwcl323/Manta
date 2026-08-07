@@ -1,5 +1,6 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
 from paramiko import RSAKey
@@ -11,7 +12,7 @@ from copy import deepcopy
 import subprocess
 
 from benchmark.config import Committee, Key, NodeParameters, BenchParameters, ConfigError
-from benchmark.utils import BenchError, Print, PathMaker, progress_bar, write_failure_summary
+from benchmark.utils import BenchError, Print, PathMaker, progress_bar
 from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from benchmark.instance import InstanceManager
@@ -54,18 +55,9 @@ class Bench:
     def install(self):
         Print.info('Installing rust and cloning the repo...')
         cmd = [
-            # Ubuntu cloud images: if systemd-resolved is stopped, 127.0.0.53 refuses DNS
-            # and apt/curl/git fail to resolve hosts — enable it before network use.
-            'if systemctl cat systemd-resolved.service >/dev/null 2>&1; then '
-            'systemctl is-active --quiet systemd-resolved || '
-            'sudo systemctl enable --now systemd-resolved; fi',
             'sudo apt-get update',
-            # EC2 images sometimes leave linux-aws meta packages half-configured; a full
-            # upgrade then fails until dependencies are reconciled (see apt message:
-            # "Try 'apt --fix-broken install'").
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y -f install',
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade',
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get -y autoremove',
+            'sudo apt-get -y upgrade',
+            'sudo apt-get -y autoremove',
 
             # The following dependencies prevent the error: [error: linker `cc` not found].
             'sudo apt-get -y install build-essential',
@@ -79,8 +71,8 @@ class Bench:
             # This is missing from the Rocksdb installer (needed for Rocksdb).
             'sudo apt-get install -y clang',
 
-            # Clone into the same directory name used by _update / compile (must match repo.name).
-            f'(git clone {self.settings.repo_url} {self.settings.repo_name} || (cd {self.settings.repo_name} && git pull))'
+            # Clone the repo.
+            f'(if [ -d {self.settings.repo_name}/.git ]; then cd {self.settings.repo_name} && git pull; else git clone {self.settings.repo_url} {self.settings.repo_name}; fi)'
         ]
         hosts = self.manager.hosts(flat=True)
         try:
@@ -145,19 +137,16 @@ class Bench:
         output = c.run(cmd, hide=True)
         self._check_stderr(output)
 
-    def _background_run_many(self, jobs):
-        assert isinstance(jobs, list)
-        if not jobs:
+    def _background_run_batch(self, launches):
+        if not launches:
             return
 
-        # Launch all commands for the same role concurrently to reduce skew
-        # between nodes while still keeping role ordering explicit.
-        with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+        with ThreadPoolExecutor(max_workers=min(32, len(launches))) as executor:
             futures = [
                 executor.submit(self._background_run, host, command, log_file)
-                for host, command, log_file in jobs
+                for host, command, log_file in launches
             ]
-            for future in futures:
+            for future in as_completed(futures):
                 future.result()
 
     def _update(self, hosts, collocate):
@@ -216,14 +205,13 @@ class Bench:
             addresses = OrderedDict(
                 (x, y) for x, y in zip(names, hosts)
             )
-        jp = node_parameters.json
         committee = Committee(
             addresses,
             self.settings.base_port,
-            jp.get('sigma', 1),
-            jp.get('kappa', 2),
-            jp.get('reference', 4),
-            jp.get('coverage', 7),
+            sigma=2,
+            kappa=2,
+            reference=4,
+            coverage=7,
         )
         committee.print(PathMaker.committee_file())
 
@@ -249,27 +237,29 @@ class Bench:
         hosts = committee.ips()
         self.kill(hosts=hosts, delete_logs=True)
 
-        # Run the primaries first so workers and clients see fewer connection
-        # refusals during the startup phase.
-        Print.info('Booting primaries...')
-        primary_jobs = []
-        for i, address in enumerate(committee.primary_addresses(faults)):
-            host = Committee.ip(address)
-            cmd = CommandMaker.run_primary(
-                PathMaker.key_file(i),
-                PathMaker.committee_file(),
-                PathMaker.db_path(i),
-                PathMaker.parameters_file(),
-                debug=debug
-            )
-            log_file = PathMaker.primary_log_file(i)
-            primary_jobs.append((host, cmd, log_file))
-        self._background_run_many(primary_jobs)
-
-        # Run the workers after all primaries have been started.
-        Print.info('Booting workers...')
+        # Run the clients (they will wait for the nodes to be ready).
+        # Filter all faulty nodes from the client addresses (or they will wait
+        # for the faulty nodes to be online).
+        Print.info('Booting clients...')
         workers_addresses = committee.workers_addresses(faults)
-        worker_jobs = []
+        rate_share = ceil(rate / committee.workers())
+        client_launches = []
+        for i, addresses in enumerate(workers_addresses):
+            for (id, address) in addresses:
+                host = Committee.ip(address)
+                cmd = CommandMaker.run_client(
+                    address,
+                    bench_parameters.tx_size,
+                    rate_share,
+                    [x for y in workers_addresses for _, x in y]
+                )
+                log_file = PathMaker.client_log_file(i, id)
+                client_launches.append((host, cmd, log_file))
+        self._background_run_batch(client_launches)
+
+        # Run the workers before the primaries.
+        Print.info('Booting workers...')
+        worker_launches = []
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
                 host = Committee.ip(address)
@@ -282,38 +272,32 @@ class Bench:
                     debug=debug
                 )
                 log_file = PathMaker.worker_log_file(i, id)
-                worker_jobs.append((host, cmd, log_file))
-        self._background_run_many(worker_jobs)
+                worker_launches.append((host, cmd, log_file))
+        self._background_run_batch(worker_launches)
 
-        # Run the clients last. They still wait for nodes to be ready, but the
-        # role-level ordering avoids unnecessary startup skew.
-        Print.info('Booting clients...')
-        client_jobs = []
-        rate_share = ceil(rate / committee.workers())
-        all_workers = [x for y in workers_addresses for _, x in y]
-        for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
-                host = Committee.ip(address)
-                cmd = CommandMaker.run_client(
-                    address,
-                    bench_parameters.tx_size,
-                    rate_share,
-                    all_workers
-                )
-                log_file = PathMaker.client_log_file(i, id)
-                client_jobs.append((host, cmd, log_file))
-        self._background_run_many(client_jobs)
+        # Run the primaries last.
+        Print.info('Booting primaries...')
+        primary_launches = []
+        for i, address in enumerate(committee.primary_addresses(faults)):
+            host = Committee.ip(address)
+            cmd = CommandMaker.run_primary(
+                PathMaker.key_file(i),
+                PathMaker.committee_file(),
+                PathMaker.db_path(i),
+                PathMaker.parameters_file(),
+                debug=debug
+            )
+            log_file = PathMaker.primary_log_file(i)
+            primary_launches.append((host, cmd, log_file))
+        self._background_run_batch(primary_launches)
 
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
         for _ in progress_bar(range(20), prefix=f'Running benchmark ({duration} sec):'):
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
-        # Give remote tee/file buffers a moment to flush before log download.
-        sleep(1)
 
-    def _logs(self, committee, faults, total_rate=None, tx_size=None,
-              design_tag=None, network_tag=None):
+    def _logs(self, committee, faults):
         # Delete local logs (if any).
         cmd = CommandMaker.clean_logs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
@@ -344,23 +328,9 @@ class Bench:
                 local=PathMaker.primary_log_file(i)
             )
 
-        # Parse logs and return the parser. If clients failed to start, we can
-        # still recover a summary from the configured size/rate values.
+        # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
-        default_client_rates = None
-        if total_rate is not None:
-            worker_count = committee.workers()
-            if worker_count > 0:
-                rate_share = ceil(total_rate / worker_count)
-                default_client_rates = [rate_share] * worker_count
-        return LogParser.process(
-            PathMaker.logs_path(),
-            faults=faults,
-            default_client_size=tx_size,
-            default_client_rates=default_client_rates,
-            design_tag=design_tag,
-            network_tag=network_tag,
-        )
+        return LogParser.process(PathMaker.logs_path(), faults=faults)
 
     def run(self, bench_parameters_dict, node_parameters_dict, debug=False):
         assert isinstance(debug, bool)
@@ -404,48 +374,34 @@ class Bench:
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
-                    summary_file = PathMaker.summary_file(
-                        bench_parameters.faults,
-                        n,
-                        bench_parameters.workers,
-                        bench_parameters.collocate,
-                        r,
-                        bench_parameters.tx_size,
-                        i + 1,
-                        design_tag=bench_parameters.design_tag,
-                        network_tag=bench_parameters.network_tag,
-                    )
                     try:
+                        run_dir = PathMaker.create_run_directory(
+                            f'remote-n{n}-r{r}-run{i+1}',
+                            design_tag=node_parameters.json.get('design_tag'),
+                            network_tag=node_parameters.json.get('network_tag'),
+                            load_tag=node_parameters.json.get('load_tag'),
+                        )
+                        Print.info(f'Run outputs directory: {run_dir}')
                         self._run_single(
                             r, committee_copy, bench_parameters, debug
                         )
 
                         faults = bench_parameters.faults
-                        logger = self._logs(
-                            committee_copy,
+                        logger = self._logs(committee_copy, faults)
+                        logger.print(PathMaker.summary_file())
+                        logger.print(PathMaker.result_file(
                             faults,
-                            total_rate=r,
-                            tx_size=bench_parameters.tx_size,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                        )
-                        logger.print(summary_file)
+                            n, 
+                            bench_parameters.workers,
+                            bench_parameters.collocate,
+                            r, 
+                            bench_parameters.tx_size, 
+                        ))
+                        logger.export_latency_csv()
+                        PathMaker.export_run_artifacts()
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:
                         self.kill(hosts=selected_hosts)
                         if isinstance(e, GroupException):
                             e = FabricError(e)
-                        write_failure_summary(
-                            summary_file,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                            faults=bench_parameters.faults,
-                            nodes=n,
-                            workers=bench_parameters.workers,
-                            collocate=bench_parameters.collocate,
-                            rate=r,
-                            tx_size=bench_parameters.tx_size,
-                            run=i + 1,
-                            error=str(e),
-                        )
                         Print.error(BenchError('Benchmark failed', e))
                         continue

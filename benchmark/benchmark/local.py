@@ -1,4 +1,6 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from math import ceil
 from os.path import basename, splitext
@@ -26,6 +28,33 @@ class LocalBench:
             self.kappa = node_parameters_dict['kappa']
             self.reference = node_parameters_dict['reference']
             self.coverage = node_parameters_dict['coverage']
+            self.allow_cross_step_weak_edges = node_parameters_dict.get(
+                'allow_cross_step_weak_edges',
+                True,
+            )
+            self.enable_fast_coin = node_parameters_dict.get(
+                'enable_fast_coin',
+                False,
+            )
+            self.solid_commit_trigger_on_solid_step = node_parameters_dict.get(
+                'solid_commit_trigger_on_solid_step',
+                False,
+            )
+            self.enable_commit_recheck = node_parameters_dict.get(
+                'enable_commit_recheck',
+                True,
+            )
+            self.fast_coin_candidate_threshold = node_parameters_dict.get(
+                'fast_coin_candidate_threshold',
+                0,
+            )
+            self.solid_candidate_threshold = node_parameters_dict.get(
+                'solid_candidate_threshold',
+                0,
+            )
+            self.design_tag = node_parameters_dict.get('design_tag')
+            self.network_tag = node_parameters_dict.get('network_tag')
+            self.load_tag = node_parameters_dict.get('load_tag')
         except ConfigError as e:
             raise BenchError('Invalid nodes or bench parameters', e)
 
@@ -49,6 +78,18 @@ class LocalBench:
             start_new_session=True,
         )
         self._processes.append(process)
+
+    def _background_run_batch(self, launches):
+        if not launches:
+            return
+
+        with ThreadPoolExecutor(max_workers=min(32, len(launches))) as executor:
+            futures = [
+                executor.submit(self._background_run, command, log_file)
+                for command, log_file in launches
+            ]
+            for future in as_completed(futures):
+                future.result()
 
     def _kill_nodes(self):
         try:
@@ -77,6 +118,13 @@ class LocalBench:
         try:
             Print.info('Setting up testbed...')
             nodes, rate, rate_type = self.nodes[0], self.rate[0], self.rate_type
+            run_dir = PathMaker.create_run_directory(
+                f'local-n{nodes}-r{rate}',
+                design_tag=self.design_tag,
+                network_tag=self.network_tag,
+                load_tag=self.load_tag,
+            )
+            Print.info(f'Run outputs directory: {run_dir}')
 
             # Cleanup all files.
             cmd = f'{CommandMaker.clean_logs()} ; {CommandMaker.cleanup()}'
@@ -100,14 +148,29 @@ class LocalBench:
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
-            committee = LocalCommittee(names, self.BASE_PORT, self.workers, self.sigma, self.kappa, self.reference, self.coverage)
+            committee = LocalCommittee(
+                names,
+                self.BASE_PORT,
+                self.workers,
+                self.sigma,
+                self.kappa,
+                self.reference,
+                self.coverage,
+                self.allow_cross_step_weak_edges,
+                self.enable_fast_coin,
+                self.solid_commit_trigger_on_solid_step,
+                self.enable_commit_recheck,
+                self.fast_coin_candidate_threshold,
+                self.solid_candidate_threshold,
+            )
             committee.print(PathMaker.committee_file())
 
             self.node_parameters.print(PathMaker.parameters_file())
 
-            # Run the clients (they will wait for the nodes to be ready).
+            # Run the clients first (they will wait for the nodes to be ready).
             workers_addresses = committee.workers_addresses(self.faults)
             client_rates = []
+            client_launches = []
             if rate_type == 'balanced':
                 rate_share = ceil(rate / committee.workers())
                 for i, addresses in enumerate(workers_addresses):
@@ -120,7 +183,7 @@ class LocalBench:
                             [x for y in workers_addresses for _, x in y]
                         )
                         log_file = PathMaker.client_log_file(i, id)
-                        self._background_run(cmd, log_file)
+                        client_launches.append((cmd, log_file))
             else:
                 # generate a list of rate with zipf
                 zipf_allocator = ZipfAllocator(rate, committee.workers(), self.s)
@@ -137,21 +200,11 @@ class LocalBench:
                             [x for y in workers_addresses for _, x in y]
                         )
                         log_file = PathMaker.client_log_file(i, id)
-                        self._background_run(cmd, log_file)
+                        client_launches.append((cmd, log_file))
+            self._background_run_batch(client_launches)
 
-            # Run the primaries (except the faulty ones).
-            for i, address in enumerate(committee.primary_addresses(self.faults)):
-                cmd = CommandMaker.run_primary(
-                    PathMaker.key_file(i),
-                    PathMaker.committee_file(),
-                    PathMaker.db_path(i),
-                    PathMaker.parameters_file(),
-                    debug=debug
-                )
-                log_file = PathMaker.primary_log_file(i)
-                self._background_run(cmd, log_file)
-
-            # Run the workers (except the faulty ones).
+            # Run the workers before the primaries.
+            worker_launches = []
             for i, addresses in enumerate(workers_addresses):
                 for (id, address) in addresses:
                     cmd = CommandMaker.run_worker(
@@ -163,7 +216,22 @@ class LocalBench:
                         debug=debug
                     )
                     log_file = PathMaker.worker_log_file(i, id)
-                    self._background_run(cmd, log_file)
+                    worker_launches.append((cmd, log_file))
+            self._background_run_batch(worker_launches)
+
+            # Run the primaries last.
+            primary_launches = []
+            for i, address in enumerate(committee.primary_addresses(self.faults)):
+                cmd = CommandMaker.run_primary(
+                    PathMaker.key_file(i),
+                    PathMaker.committee_file(),
+                    PathMaker.db_path(i),
+                    PathMaker.parameters_file(),
+                    debug=debug
+                )
+                log_file = PathMaker.primary_log_file(i)
+                primary_launches.append((cmd, log_file))
+            self._background_run_batch(primary_launches)
 
             # Wait for all transactions to be processed.
             Print.info(f'Running benchmark ({self.duration} sec)...')
@@ -172,12 +240,23 @@ class LocalBench:
 
             # Parse logs and return the parser.
             Print.info('Parsing logs...')
-            return LogParser.process(
+            logger = LogParser.process(
                 PathMaker.logs_path(),
                 faults=self.faults,
                 default_client_size=self.tx_size,
                 default_client_rates=client_rates,
             )
+            logger.print(PathMaker.summary_file())
+            logger.print(PathMaker.result_file(
+                self.faults,
+                nodes,
+                self.workers,
+                True,
+                rate,
+                self.tx_size,
+            ))
+            PathMaker.export_run_artifacts()
+            return logger
 
         except (subprocess.SubprocessError, ParseError) as e:
             self._kill_nodes()

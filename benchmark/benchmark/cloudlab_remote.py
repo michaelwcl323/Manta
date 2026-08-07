@@ -1,3 +1,4 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 """
 CloudLab Remote Benchmark
 
@@ -5,6 +6,7 @@ This module provides functionality to run benchmarks on CloudLab nodes.
 """
 
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
@@ -18,7 +20,7 @@ import re
 import shlex
 
 from benchmark.config import Committee, Key, NodeParameters, BenchParameters, ConfigError
-from benchmark.utils import BenchError, Print, PathMaker, write_failure_summary
+from benchmark.utils import BenchError, Print, PathMaker
 from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from benchmark.cloudlab_instance import CloudLabInstanceManager
@@ -90,6 +92,57 @@ class CloudLabBench:
         else:
             if output.stderr:
                 raise ExecutionError(output.stderr)
+
+    def _auto_plot_run_latency(self, run_dir):
+        """Generate latency plots for a single run directory."""
+        base_dir = Path(__file__).resolve().parent.parent
+        run_path = Path(run_dir)
+        if not run_path.is_absolute():
+            run_path = base_dir / run_path
+
+        latency_csv = run_path / 'latency.csv'
+        if not latency_csv.exists():
+            Print.warn(f'Auto-plot skipped: latency.csv not found in {run_path}')
+            return
+
+        plots = [
+            (
+                base_dir / 'plot_primary_start_consensus_avg_per_run.py',
+                ['--input-dir', str(run_path), '--time-axis', 'commit'],
+            ),
+            (
+                base_dir / 'plot_attack_latency_timeseries.py',
+                ['--input-dir', str(run_path), '--time-axis', 'commit'],
+            ),
+        ]
+
+        for script_path, extra_args in plots:
+            if not script_path.exists():
+                Print.warn(f'Auto-plot skipped: script not found at {script_path}')
+                continue
+
+            try:
+                result = subprocess.run(
+                    ['python3', str(script_path), *extra_args],
+                    cwd=str(base_dir),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except Exception as e:
+                Print.warn(f'Auto-plot failed for {run_path}: {e}')
+                continue
+
+            if result.returncode != 0:
+                err = (result.stderr or result.stdout or '').strip()
+                Print.warn(f'Auto-plot failed for {run_path}: {err}')
+                continue
+
+            output_text = (result.stdout or '').strip()
+            if output_text:
+                Print.info('Auto-plot generated:')
+                for line in output_text.splitlines():
+                    Print.info(f'  {line}')
     
     def _get_connection_kwargs(self, host_info):
         """Get connection kwargs for a specific host (without port/timeout, passed separately)"""
@@ -199,7 +252,7 @@ class CloudLabBench:
             # Add cargo to PATH permanently
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.bashrc',
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.profile',
-            f'(git clone {self.settings.repo_url} || (cd {self.settings.repo_name} ; git pull))',
+            f'(if [ -d {self.settings.repo_name}/.git ]; then cd {self.settings.repo_name} && git pull; else git clone {self.settings.repo_url} {self.settings.repo_name}; fi)',
             f'cd {self.settings.repo_name}/benchmark && pip3 install -r requirements.txt'
         ]
         
@@ -965,6 +1018,54 @@ class CloudLabBench:
         kappa = node_parameters.json.get('kappa', 2)
         reference = node_parameters.json.get('reference', 4)
         coverage = node_parameters.json.get('coverage', 7)
+        allow_cross_step_weak_edges = node_parameters.json.get(
+            'allow_cross_step_weak_edges',
+            True,
+        )
+        enable_fast_coin = node_parameters.json.get(
+            'enable_fast_coin',
+            False,
+        )
+        solid_commit_trigger_on_solid_step = node_parameters.json.get(
+            'solid_commit_trigger_on_solid_step',
+            False,
+        )
+        enable_commit_recheck = node_parameters.json.get(
+            'enable_commit_recheck',
+            True,
+        )
+        fast_coin_candidate_threshold = node_parameters.json.get(
+            'fast_coin_candidate_threshold',
+            0,
+        )
+        solid_candidate_threshold = node_parameters.json.get(
+            'solid_candidate_threshold',
+            0,
+        )
+        attack_enabled = node_parameters.json.get(
+            'attack_enabled',
+            False,
+        )
+        attack_start_secs = node_parameters.json.get(
+            'attack_start_secs',
+            0,
+        )
+        attack_duration_secs = node_parameters.json.get(
+            'attack_duration_secs',
+            0,
+        )
+        attack_group_size = node_parameters.json.get(
+            'attack_group_size',
+            0,
+        )
+        attack_limit_headers = node_parameters.json.get(
+            'attack_limit_headers',
+            False,
+        )
+        attack_limit_certificates = node_parameters.json.get(
+            'attack_limit_certificates',
+            True,
+        )
         committee = Committee(
             addresses,
             self.settings.base_port,
@@ -972,11 +1073,23 @@ class CloudLabBench:
             kappa,
             reference,
             coverage,
+            allow_cross_step_weak_edges,
+            enable_fast_coin,
+            solid_commit_trigger_on_solid_step,
+            enable_commit_recheck,
+            fast_coin_candidate_threshold,
+            solid_candidate_threshold,
+            attack_enabled,
+            attack_start_secs,
+            attack_duration_secs,
+            attack_group_size,
+            attack_limit_headers,
+            attack_limit_certificates,
         )
         committee.print(PathMaker.committee_file())
-
-        node_parameters.print(PathMaker.parameters_file())
-
+        
+        node_parameters.print(PathMaker.parameters_file())  # 改为 print() 而不是 save()
+        
         # Upload files to all hosts
         repo_name = self.settings.repo_name
         files_to_upload = [
@@ -1043,9 +1156,8 @@ class CloudLabBench:
         
         return committee
     
-    def _logs(self, committee, faults, max_workers=1, total_rate=None,
-              tx_size=None, design_tag=None, network_tag=None):
-        """Download logs from all hosts using download_logs.py"""
+    def _logs(self, committee, faults, max_workers=1):
+        """Download logs and process them once into summary.txt"""
         Print.info('Downloading logs...')
         
         # Get benchmark directory (parent of benchmark/benchmark/)
@@ -1055,29 +1167,25 @@ class CloudLabBench:
         if not download_logs_script.exists():
             Print.error(f'download_logs.py not found at {download_logs_script}')
             Print.error('Falling back to basic log download...')
-            # Fallback: create logs directory and return parser
-            Path(PathMaker.logs_path()).mkdir(parents=True, exist_ok=True)
-            default_client_rates = None
-            if total_rate is not None:
-                worker_count = committee.workers()
-                if worker_count > 0:
-                    rate_share = ceil(total_rate / worker_count)
-                    default_client_rates = [rate_share] * worker_count
-            return LogParser.process(
-                PathMaker.logs_path(),
-                faults=faults,
-                default_client_size=tx_size,
-                default_client_rates=default_client_rates,
-                design_tag=design_tag,
-                network_tag=network_tag,
-            )
+            # Fallback: create logs directory and process logs locally once.
+            PathMaker.reset_logs_path()
+            result = LogParser.process(PathMaker.logs_path(), faults=faults)
+            print(result.result())
+            result.print(PathMaker.summary_file())
+            return
         
         # Run download_logs.py to download all logs
         try:
             import sys
             Print.info(f'Running download_logs.py with max_workers={max_workers}...')
             result = subprocess.run(
-                [sys.executable, str(download_logs_script), '--max-workers', str(max_workers)],
+                [
+                    sys.executable,
+                    str(download_logs_script),
+                    '--max-workers',
+                    str(max_workers),
+                    '--refresh',
+                ],
                 cwd=str(benchmark_dir),
                 capture_output=False,  # Show output in real-time
                 text=True
@@ -1100,7 +1208,7 @@ class CloudLabBench:
             run_benchmark_script = benchmark_dir / 'run_cloudlab_benchmark.py'
             
             if run_benchmark_script.exists():
-                Print.info('Running run_cloudlab_benchmark.py --no-run to process logs...')
+                Print.info('Running run_cloudlab_benchmark.py --no-run to process logs and save summary...')
                 result = subprocess.run(
                     [sys.executable, str(run_benchmark_script), '--no-run'],
                     cwd=str(benchmark_dir),
@@ -1117,23 +1225,6 @@ class CloudLabBench:
             Print.warn(f'⚠ Failed to run run_cloudlab_benchmark.py --no-run: {e}')
         
         Print.info('=' * 60)
-        
-        # Parse and return logs. If clients failed to start, recover a summary
-        # from the configured client size/rate values.
-        default_client_rates = None
-        if total_rate is not None:
-            worker_count = committee.workers()
-            if worker_count > 0:
-                rate_share = ceil(total_rate / worker_count)
-                default_client_rates = [rate_share] * worker_count
-        return LogParser.process(
-            PathMaker.logs_path(),
-            faults=faults,
-            default_client_size=tx_size,
-            default_client_rates=default_client_rates,
-            design_tag=design_tag,
-            network_tag=network_tag,
-        )
     
     def _background_run(self, host_info, command, log_file):
         """Run a command in the background using nohup on a remote host"""
@@ -1342,6 +1433,18 @@ SCRIPTEOF'''
             if isinstance(e, BenchError):
                 raise
             raise BenchError(f'Failed to start {name} on {hostname}', e)
+
+    def _background_run_batch(self, launches):
+        if not launches:
+            return
+
+        with ThreadPoolExecutor(max_workers=min(32, len(launches))) as executor:
+            futures = [
+                executor.submit(self._background_run, host_info, command, log_file)
+                for host_info, command, log_file in launches
+            ]
+            for future in as_completed(futures):
+                future.result()
     
     def _get_host_by_address(self, address, selected_hosts):
         """Get host info by extracting IP from address"""
@@ -1397,8 +1500,49 @@ SCRIPTEOF'''
         # Pre-compute workers' addresses (filtered for faults) – same as Bench._run_single
         workers_addresses = committee.workers_addresses(faults)
 
-        # 2. Run the clients first (they will wait for the nodes to be ready)
-        #    This mirrors benchmark/benchmark/remote.py::_run_single
+        # 2. Run the primaries first.
+        Print.info('Booting primaries...')
+        primary_launches = []
+        for i, address in enumerate(committee.primary_addresses(faults)):
+            host_info = self._get_host_by_address(address, selected_hosts)
+            if not host_info:
+                Print.warn(f'Could not find host for address {address}')
+                continue
+
+            cmd = CommandMaker.run_primary(
+                PathMaker.key_file(i),
+                PathMaker.committee_file(),
+                PathMaker.db_path(i),
+                PathMaker.parameters_file(),
+                debug=debug
+            )
+            log_file = PathMaker.primary_log_file(i)
+            primary_launches.append((host_info, cmd, log_file))
+        self._background_run_batch(primary_launches)
+
+        # 3. Run the workers.
+        Print.info('Booting workers...')
+        worker_launches = []
+        for i, addresses in enumerate(workers_addresses):
+            for (id, address) in addresses:
+                host_info = self._get_host_by_address(address, selected_hosts)
+                if not host_info:
+                    Print.warn(f'Could not find host for address {address}')
+                    continue
+
+                cmd = CommandMaker.run_worker(
+                    PathMaker.key_file(i),
+                    PathMaker.committee_file(),
+                    PathMaker.db_path(i, id),
+                    PathMaker.parameters_file(),
+                    id,  # The worker's id.
+                    debug=debug
+                )
+                log_file = PathMaker.worker_log_file(i, id)
+                worker_launches.append((host_info, cmd, log_file))
+        self._background_run_batch(worker_launches)
+
+        # 4. Run the clients last.
         Print.info('Booting clients...')
         workers_total = committee.workers()
         if bench_parameters.rate_type == 'balanced':
@@ -1423,6 +1567,7 @@ SCRIPTEOF'''
             )
 
         worker_index = 0
+        client_launches = []
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
                 host_info = self._get_host_by_address(address, selected_hosts)
@@ -1438,46 +1583,9 @@ SCRIPTEOF'''
                     [x for y in workers_addresses for _, x in y]
                 )
                 log_file = PathMaker.client_log_file(i, id)
-                self._background_run(host_info, cmd, log_file)
+                client_launches.append((host_info, cmd, log_file))
                 worker_index += 1
-
-        # 3. Run the primaries (except the faulty ones) – same order as Bench._run_single
-        Print.info('Booting primaries...')
-        for i, address in enumerate(committee.primary_addresses(faults)):
-            host_info = self._get_host_by_address(address, selected_hosts)
-            if not host_info:
-                Print.warn(f'Could not find host for address {address}')
-                continue
-
-            cmd = CommandMaker.run_primary(
-                PathMaker.key_file(i),
-                PathMaker.committee_file(),
-                PathMaker.db_path(i),
-                PathMaker.parameters_file(),
-                debug=debug
-            )
-            log_file = PathMaker.primary_log_file(i)
-            self._background_run(host_info, cmd, log_file)
-
-        # 4. Run the workers (except the faulty ones) – same as Bench._run_single
-        Print.info('Booting workers...')
-        for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
-                host_info = self._get_host_by_address(address, selected_hosts)
-                if not host_info:
-                    Print.warn(f'Could not find host for address {address}')
-                    continue
-
-                cmd = CommandMaker.run_worker(
-                    PathMaker.key_file(i),
-                    PathMaker.committee_file(),
-                    PathMaker.db_path(i, id),
-                    PathMaker.parameters_file(),
-                    id,  # The worker's id.
-                    debug=debug
-                )
-                log_file = PathMaker.worker_log_file(i, id)
-                self._background_run(host_info, cmd, log_file)
+        self._background_run_batch(client_launches)
 
         # 5. Wait for all transactions to be processed (progress output)
         duration = bench_parameters.duration
@@ -1572,54 +1680,92 @@ SCRIPTEOF'''
                     for run in range(bench_parameters.runs):
                         attack_str = f", attack={'ON' if trigger_attack else 'OFF'}" if trigger_attack is not None else ""
                         Print.heading(f'\nRunning benchmark: nodes={n}, rate={rate}{attack_str}, run={run+1}/{bench_parameters.runs}')
-                        summary_file = PathMaker.summary_file(
-                            bench_parameters.faults,
-                            n,
-                            bench_parameters.workers,
-                            bench_parameters.collocate,
-                            rate,
-                            bench_parameters.tx_size,
-                            run + 1,
-                            design_tag=bench_parameters.design_tag,
-                            network_tag=bench_parameters.network_tag,
-                        )
                         
                         try:
+                            design_tag = node_parameters.json.get('design_tag')
+                            network_tag = node_parameters.json.get('network_tag')
+                            load_tag = node_parameters.json.get('load_tag')
+                            sigma = node_parameters.json.get('sigma')
+                            kappa = node_parameters.json.get('kappa')
+                            reference = node_parameters.json.get('reference')
+                            run_label = (
+                                f'cloudlab-n{n}-r{rate}-run{run+1}'
+                                f'-s{sigma}-k{kappa}-ref{reference}'
+                            )
+                            if design_tag:
+                                run_label += f'-tag-{design_tag}'
+                            if trigger_attack is not None:
+                                run_label += f'-attack-{"on" if trigger_attack else "off"}'
+                            run_dir = PathMaker.create_run_directory(
+                                run_label,
+                                design_tag=design_tag,
+                                network_tag=network_tag,
+                                load_tag=load_tag,
+                            )
+                            PathMaker.update_run_metadata(
+                                {
+                                    'benchmark_type': 'cloudlab',
+                                    'bench_params': {
+                                        'faults': bench_parameters.faults,
+                                        'nodes': n,
+                                        'workers': bench_parameters.workers,
+                                        'collocate': bench_parameters.collocate,
+                                        'rate': rate,
+                                        'rate_type': getattr(bench_parameters, 'rate_type', None),
+                                        'tx_size': bench_parameters.tx_size,
+                                        'duration': bench_parameters.duration,
+                                        'run': run + 1,
+                                    },
+                                    'node_params': {
+                                        key: value
+                                        for key, value in node_parameters.json.items()
+                                        if key in (
+                                            'sigma',
+                                            'kappa',
+                                            'reference',
+                                            'coverage',
+                                            'allow_cross_step_weak_edges',
+                                            'enable_fast_coin',
+                                            'solid_commit_trigger_on_solid_step',
+                                            'enable_commit_recheck',
+                                            'fast_coin_candidate_threshold',
+                                            'solid_candidate_threshold',
+                                            'attack_enabled',
+                                            'attack_start_secs',
+                                            'attack_duration_secs',
+                                            'attack_group_size',
+                                            'attack_limit_headers',
+                                            'attack_limit_certificates',
+                                            'enable_adaptive_intermediate_spill',
+                                            'adaptive_intermediate_spill_trigger_digests',
+                                            'adaptive_intermediate_spill_cap_digests',
+                                            'design_tag',
+                                            'network_tag',
+                                            'load_tag',
+                                        )
+                                    },
+                                },
+                                run_dir=run_dir,
+                            )
+                            Print.info(f'Run outputs directory: {run_dir}')
                             # Run the actual benchmark
                             self._run_single(
                                 rate, committee_copy, bench_parameters, node_parameters, selected_hosts, debug
                             )
                             
-                            # Download and parse logs
-                            result = self._logs(
+                            # Download logs, then process them once and save summary.txt.
+                            self._logs(
                                 committee_copy,
                                 bench_parameters.faults,
                                 max_workers=bench_parameters.workers,
-                                total_rate=rate,
-                                tx_size=bench_parameters.tx_size,
-                                design_tag=bench_parameters.design_tag,
-                                network_tag=bench_parameters.network_tag,
                             )
-                            result.print(summary_file)
+                            PathMaker.export_run_artifacts()
+                            self._auto_plot_run_latency(run_dir)
                         except (subprocess.SubprocessError, GroupException, ParseError) as e:
                             self.kill(hosts=selected_hosts)
                             if isinstance(e, GroupException):
                                 e = FabricError(e)
-                            write_failure_summary(
-                                summary_file,
-                                design_tag=bench_parameters.design_tag,
-                                network_tag=bench_parameters.network_tag,
-                                faults=bench_parameters.faults,
-                                nodes=n,
-                                workers=bench_parameters.workers,
-                                collocate=bench_parameters.collocate,
-                                rate=rate,
-                                tx_size=bench_parameters.tx_size,
-                                run=run + 1,
-                                error=str(e),
-                            )
                             Print.error(BenchError('Benchmark failed', e))
                             continue
         
         Print.heading('All benchmarks completed')
-

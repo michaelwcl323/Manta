@@ -1,9 +1,8 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from re import search
 from collections import defaultdict
 from statistics import mean, stdev
-from glob import glob
 from copy import deepcopy
-from os.path import join
 import os
 
 from benchmark.utils import PathMaker
@@ -88,7 +87,7 @@ class LogAggregator:
         self.max_latencies = max_latencies
 
         data = ''
-        for filename in glob(join(PathMaker.results_path(), '*.txt')):
+        for filename in PathMaker.all_result_files():
             with open(filename, 'r') as f:
                 data += f.read()
 

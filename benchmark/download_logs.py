@@ -349,7 +349,7 @@ def collect_primary_logs_via_node0(conn, repo_name, host_info, node_indices=None
     
     return collected_logs, temp_dir
 
-def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
+def download_logs(settings_file='cloudlab_settings.json', max_workers=1, refresh=False):
     """Download logs from all CloudLab hosts directly from local machine"""
     
     # Load settings
@@ -378,9 +378,12 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
         Print.error('Failed to load SSH key. Cannot proceed.')
         return False
     
-    # Create local logs directory
-    logs_dir = Path(PathMaker.logs_path())
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    # Create or refresh the shared local logs directory.
+    if refresh:
+        logs_dir = Path(PathMaker.reset_logs_path())
+    else:
+        logs_dir = Path(PathMaker.logs_path())
+        logs_dir.mkdir(parents=True, exist_ok=True)
     
     # Download logs directly from each node
     try:
@@ -466,7 +469,7 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
         Print.error(f'✗ Failed: {error_msg}')
         return False
 
-def download_primary_logs(settings_file='cloudlab_settings.json', node_indices=None):
+def download_primary_logs(settings_file='cloudlab_settings.json', node_indices=None, refresh=False):
     """Download primary logs from specified CloudLab nodes directly from local machine"""
     
     # Load settings
@@ -501,8 +504,11 @@ def download_primary_logs(settings_file='cloudlab_settings.json', node_indices=N
         return False
     
     # Create local logs directory
-    logs_dir = Path(PathMaker.logs_path())
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    if refresh:
+        logs_dir = Path(PathMaker.reset_logs_path())
+    else:
+        logs_dir = Path(PathMaker.logs_path())
+        logs_dir.mkdir(parents=True, exist_ok=True)
     
     # Download logs directly from each specified node
     try:
@@ -599,6 +605,8 @@ if __name__ == '__main__':
                        help='Download only primary logs')
     parser.add_argument('--nodes', type=str, default=None,
                        help='Comma-separated list of node indices to download from (e.g., "0,1,2,3")')
+    parser.add_argument('--refresh', action='store_true',
+                       help='Clear the shared local logs directory before downloading')
     
     args = parser.parse_args()
     
@@ -610,7 +618,7 @@ if __name__ == '__main__':
             except ValueError:
                 Print.error(f'Invalid node indices: {args.nodes}')
                 sys.exit(1)
-        success = download_primary_logs(args.settings, node_indices)
+        success = download_primary_logs(args.settings, node_indices, refresh=args.refresh)
     else:
-        success = download_logs(args.settings, args.max_workers)
+        success = download_logs(args.settings, args.max_workers, refresh=args.refresh)
     sys.exit(0 if success else 1)

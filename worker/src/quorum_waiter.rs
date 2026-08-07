@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::processor::SerializedBatchMessage;
 use config::{Committee, Stake};
 use crypto::PublicKey;
@@ -18,7 +19,7 @@ pub struct QuorumWaiterMessage {
     pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
 
-/// The QuorumWaiter waits for 2f authorities to acknowledge reception of a batch.
+/// The QuorumWaiter waits for a full quorum of acknowledgements.
 pub struct QuorumWaiter {
     /// The committee information.
     committee: Committee,
@@ -67,13 +68,21 @@ impl QuorumWaiter {
                 })
                 .collect();
 
-            // Wait for the first 2f nodes to send back an Ack. Then we consider the batch
-            // delivered and we send its digest to the primary (that will include it into
-            // the dag). This should reduce the amount of synching.
+            // Wait for a full quorum of worker acknowledgements before forwarding the batch to the
+            // primary. Releasing batches on only f+1 replicas causes most primaries to miss the
+            // payload and stall on payload synchronization under load.
             let mut total_stake = self.stake;
+            let quorum_threshold = self.committee.quorum_threshold();
+            // if total_stake >= quorum_threshold {
+            //     self.tx_batch
+            //         .send(batch)
+            //         .await
+            //         .expect("Failed to deliver batch");
+            //     continue;
+            // }
             while let Some(stake) = wait_for_quorum.next().await {
                 total_stake += stake;
-                if total_stake >= self.committee.quorum_threshold() {
+                if total_stake >= quorum_threshold {
                     self.tx_batch
                         .send(batch)
                         .await

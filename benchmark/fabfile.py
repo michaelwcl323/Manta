@@ -1,13 +1,18 @@
+# Copyright(C) Facebook, Inc. and its affiliates.
 from fabric import task
 
 from benchmark.local import LocalBench
 from benchmark.logs import ParseError, LogParser
-from benchmark.utils import Print
+from benchmark.utils import Print, PathMaker
 from benchmark.cloudlab_instance import CloudLabInstanceManager
 from benchmark.cloudlab_remote import CloudLabBench
 from benchmark.cloudlab_wan import CloudLabWan
-from benchmark.cloudlab_lan import CloudLabLan
 from benchmark.utils import BenchError
+
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # Import AWS remote benchmark module only when needed (lazy import).
 try:
@@ -53,6 +58,11 @@ def local(ctx, debug=False):
         'kappa': 2,
         'reference': 4,
         'coverage': 7,
+        'allow_cross_step_weak_edges': True,
+        'enable_fast_coin': False,
+        'solid_commit_trigger_on_solid_step': False,
+        'fast_coin_candidate_threshold': 0,
+        'solid_candidate_threshold': 0,
         's': 0.99
     }
     try:
@@ -141,30 +151,26 @@ def remote(ctx, debug=False):
         Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
         return
     bench_params = {
-        'faults': 0,
-        'nodes': [50],
+        'faults': 3,
+        'nodes': [10],
         'workers': 1,
         'collocate': True,
-        'rate_type': 'balanced',
-        'design_tag': 'manta_experiment3_test',
-        'network_tag': 'geo',
-        'rate': [80000],
+        'rate': [10_000, 110_000],
         'tx_size': 512,
-        'duration': 120,
-        'runs': 1,
+        'duration': 300,
+        'runs': 2,
     }
     node_params = {
         'header_size': 1_000,  # bytes
-        'max_header_delay': 50,  # ms
+        'max_header_delay': 200,  # ms
         'gc_depth': 50,  # rounds
-        'sync_retry_delay': 1000,  # ms
-        'sync_retry_nodes': 33,  # number of nodes
-        'batch_size': 500000,  # bytes
-        'max_batch_delay': 50,  # ms
-        'sigma': 2,
-        'kappa': 2,
-        'reference': 17,
-        'coverage': 33,
+        'sync_retry_delay': 10_000,  # ms
+        'sync_retry_nodes': 3,  # number of nodes
+        'batch_size': 500_000,  # bytes
+        'max_batch_delay': 200,  # ms
+        'solid_step_length': 2,
+        'solid_step_number': 1,
+        'reference': 3,
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug)
@@ -208,7 +214,7 @@ def kill(ctx):
 def logs(ctx):
     ''' Print a summary of the logs '''
     try:
-        print(LogParser.process('./logs', faults='?').result())
+        print(LogParser.process(PathMaker.logs_path(), faults='?').result())
     except ParseError as e:
         Print.error(BenchError('Failed to parse logs', e))
 
@@ -240,12 +246,11 @@ def cloudlab_install(ctx):
     except BenchError as e:
         Print.error(e)
 
-
 @task
 def cloudlab_wan(ctx, action='setup', settings_file='cloudlab_settings.json'):
-    ''' Emulate WAN RTT between sites (tc netem). action=setup|clear '''
+    ''' Emulate WAN RTT between sites (tc netem). action=setup|clear. Optional settings_file=... '''
     try:
-        w = CloudLabWan(settings_file)
+        w = CloudLabWan(settings_file=settings_file)
         act = (action or 'setup').lower()
         if act == 'setup':
             w.setup()
@@ -256,58 +261,116 @@ def cloudlab_wan(ctx, action='setup', settings_file='cloudlab_settings.json'):
     except BenchError as e:
         Print.error(e)
 
-
 @task
-def cloudlab_lan(ctx, prefix_len=24, cross_subnet_via='', action='setup', settings_file='cloudlab_settings.json'):
-    ''' Cross-subnet static routes on CloudLab nodes. action=setup|clear|verify. Optional cross_subnet_via=GATEWAY_IP '''
-    try:
-        via = cross_subnet_via.strip() or None
-        plen = int(prefix_len)
-        lan = CloudLabLan(settings_file)
-        act = (action or 'setup').lower()
-        if act == 'clear':
-            lan.clear(prefix_len=plen, cross_subnet_via=via)
-        elif act == 'verify':
-            ok = lan.verify(prefix_len=plen)
-            if not ok:
-                raise BenchError('cloudlab_lan verify reported failures', RuntimeError('verify'))
-        elif act == 'setup':
-            lan.setup(prefix_len=plen, cross_subnet_via=via)
-        else:
-            Print.error('cloudlab_lan: use action=setup, clear, or verify')
-    except BenchError as e:
-        Print.error(e)
+def cloudlab_remote(
+    ctx,
+    debug=False,
+    sigma=1,
+    kappa=2,
+    reference=7,
+    coverage=7,
 
 
-@task
-def cloudlab_remote(ctx, debug=False, sigma=1, kappa=2):
+    allow_cross_step_weak_edges=False,  # 跨solid-step的weak edges
+
+# 提交规则：
+#     对同一个 r1 leader，有 3 次机会：
+# 1. Fast coin 提前机会
+#    - 触发时机：收到第一个 r3 顶点
+#    - 检查对象：r2 -> r1
+#    - 额外前提：已经看到足够的候选顶点
+# 2. Solid-step 提前机会
+#    - 触发时机：收到第一个 r4 顶点
+#    - 检查对象：r3 -> r1
+#    - 额外前提：已经看到足够的候选顶点
+# 3. 默认 regular 路径
+#    - 触发时机：收到第一个 r5 顶点
+#    - 检查对象：r3 -> r1
+#    - 只要前面没提交成功，就还要走这一步
+
+    enable_fast_coin=False, # 关闭提前提交路径，保留 regular solid path
+    solid_commit_trigger_on_solid_step=False,
+    enable_commit_recheck=False,
+    fast_coin_candidate_threshold=0,
+    solid_candidate_threshold=0,
+
+    attack_enabled=True,
+    attack_start_secs=60,
+    attack_duration_secs=1000,
+    attack_group_size=5,
+    attack_limit_headers=False,
+    attack_limit_certificates=True,
+
+    # 这是payload 的调度，第三轮和第二轮的顶点接收payload，目前以第三轮顶点优先，多余的给第二轮
+    enable_adaptive_intermediate_spill=False, # payload shceduling
+    adaptive_intermediate_spill_trigger_digests=2,
+    adaptive_intermediate_spill_cap_digests=1,
+
+    #会根据这些tag会自动生成目录，将运行结果分类 目录是 design_tag/network_tag/load_tag/
+    design_tag='experiment2_attack_final',
+    network_tag='geo',
+    load_tag='balanced_50_500000_50',
+):
     ''' Run benchmarks on CloudLab '''
+    allow_cross_step_weak_edges = _coerce_bool(allow_cross_step_weak_edges)
+    enable_fast_coin = _coerce_bool(enable_fast_coin)
+    solid_commit_trigger_on_solid_step = _coerce_bool(solid_commit_trigger_on_solid_step)
+    enable_commit_recheck = _coerce_bool(enable_commit_recheck)
+    attack_enabled = _coerce_bool(attack_enabled)
+    attack_limit_headers = _coerce_bool(attack_limit_headers)
+    attack_limit_certificates = _coerce_bool(attack_limit_certificates)
+    enable_adaptive_intermediate_spill = _coerce_bool(enable_adaptive_intermediate_spill)
     bench_params = {
         'faults': 0,
         'nodes': [10],
         'workers': 1,
         'collocate': True,
-        'design_tag': 'narwhal_experiment3',
-        'network_tag': 'no_delay_100_50',
         'rate_type': 'balanced',
-        'rate': [40000,60000,80000,100000,120000,140000,160000],
+        'rate': [100000],
+        # 'rate': [40000,60000],
+        # 'rate': [40000,80000,100000,120000,140000,150000,160000,180000],
+        # 'rate': [130000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 2,
+        'runs': 1,       
     }
+
+    # manta 对以下参数比较敏感 可调整成 50/500_000/50   100/500_000/100  50/128_000/50 80/128_000/35 等等
+    # 下面这组在geo631表现还可以, 有时候跑的不稳，900左右是正常，如果超过1000了可能是波动或者这个参数没有调优
+    #  'max_header_delay': 80,  # ms
+    #  'batch_size': 500_000,  # bytes
+    # 'max_batch_delay': 35,  # ms
     node_params = {
         'header_size': 1_000,  # bytes
-        'max_header_delay': 100,  # ms
-        'gc_depth': 50,  # rounds
+        'max_header_delay': 50,  # ms
+        'gc_depth': 200,  # rounds
         'sync_retry_delay': 1000,  # ms
-        'sync_retry_nodes': 4,  # number of nodes
-        'batch_size': 500_000,  # bytes
+        'sync_retry_nodes': 7,  # number of nodes
+        'batch_size': 500000,  # bytes
         'max_batch_delay': 50,  # ms
-        'sigma': 1,
-        'kappa': 2,
-        'reference': 4,
-        'coverage': 7,
-        's': 0.99,
+        'sigma': sigma,
+        'kappa': kappa,
+        'reference': reference,
+        'coverage': coverage,
+        'allow_cross_step_weak_edges': allow_cross_step_weak_edges,
+        'enable_fast_coin': enable_fast_coin,
+        'solid_commit_trigger_on_solid_step': solid_commit_trigger_on_solid_step,
+        'enable_commit_recheck': enable_commit_recheck,
+        'fast_coin_candidate_threshold': int(fast_coin_candidate_threshold),
+        'solid_candidate_threshold': int(solid_candidate_threshold),
+        'attack_enabled': attack_enabled,
+        'attack_start_secs': int(attack_start_secs),
+        'attack_duration_secs': int(attack_duration_secs),
+        'attack_group_size': int(attack_group_size),
+        'attack_limit_headers': attack_limit_headers,
+        'attack_limit_certificates': attack_limit_certificates,
+        'enable_adaptive_intermediate_spill': enable_adaptive_intermediate_spill,
+        'adaptive_intermediate_spill_trigger_digests': int(adaptive_intermediate_spill_trigger_digests),
+        'adaptive_intermediate_spill_cap_digests': int(adaptive_intermediate_spill_cap_digests),
+        'design_tag': design_tag,
+        'network_tag': network_tag,
+        'load_tag': load_tag,
+        # 's': 0.99,
     }
     try:
         CloudLabBench(ctx).run(bench_params, node_params, debug)

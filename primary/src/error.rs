@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::primary::Round;
 use crypto::{CryptoError, Digest, PublicKey};
 use store::StoreError;
@@ -52,6 +53,9 @@ pub enum DagError {
 
     #[error("Parents of header {0} are not a quorum")]
     HeaderRequiresQuorum(Digest),
+
+    #[error("Header {0} does not link to enough round-{1} vertices")]
+    HeaderRequiresWaveLink(Digest, Round),
 
     #[error("Message {0} (round {1}) too old")]
     TooOld(Digest, Round),

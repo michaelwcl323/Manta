@@ -1,4 +1,5 @@
-use crate::messages::{Certificate, Header, ProposalParents};
+// Copyright(C) Facebook, Inc. and its affiliates.
+use crate::messages::{merge_author_bitmaps, Certificate, Header, ProposalParents};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
 use crypto::Hash as _;
@@ -33,6 +34,15 @@ pub struct Proposer {
     rx_workers: Receiver<(Digest, WorkerId)>,
     /// Sends newly created headers to the `Core`.
     tx_core: Sender<Header>,
+    /// Number of local workers attached to this primary.
+    local_workers: usize,
+    /// Whether to only spill into the intermediate queue after the critical queue
+    /// already accumulated a meaningful backlog.
+    enable_adaptive_intermediate_spill: bool,
+    /// Minimum number of critical digests required before adaptive spill starts.
+    adaptive_intermediate_spill_trigger_digests: usize,
+    /// Maximum number of digests to keep in the intermediate spill window.
+    adaptive_intermediate_spill_cap_digests: usize,
 
     /// Unlocked proposal rounds waiting to be materialized into headers.
     unlocked_rounds: HashMap<Round, UnlockedRound>,
@@ -40,24 +50,28 @@ pub struct Proposer {
     proposed_rounds: HashSet<Round>,
     /// Monotonic unlock order used to preserve "first unlocked, first proposed".
     next_unlock_order: u64,
-    /// Holds the batches' digests waiting to be included in the next header.
-    digests: VecDeque<(Digest, WorkerId)>,
-    /// Keeps track of the size (in bytes) of batches' digests that we received so far.
-    payload_size: usize,
+    /// Digests reserved for intermediate rounds.
+    intermediate_digests: VecDeque<(Digest, WorkerId)>,
+    /// Total size of digests reserved for intermediate rounds.
+    intermediate_payload_size: usize,
+    /// Digests reserved for critical rounds.
+    critical_digests: VecDeque<(Digest, WorkerId)>,
+    /// Total size of digests reserved for critical rounds.
+    critical_payload_size: usize,
     /// The solid step length.
     solid_step_length: u64,
     /// The solid wave length.
     solid_wave_length: u64,
     /// Short grace period after parents become ready to absorb late certificates.
     parent_grace_delay: Duration,
-    /// Highest wave observed locally; older-wave parent updates are stale once a newer wave arrives.
-    latest_observed_wave: Round,
 }
 
 struct UnlockedRound {
     parents: Vec<Digest>,
     solid_step_union: HashSet<Digest>,
     solid_wave_union: HashSet<Digest>,
+    wave_back_link_target_round: Round,
+    wave_back_link_author_bitmap: Vec<u8>,
     ready_since: Instant,
     unlock_order: u64,
 }
@@ -75,13 +89,6 @@ struct ProposalDecision {
     include_payload: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StaleWavePolicy {
-    KeepWholeWave,
-    KeepOnlyRound(Round),
-    DropWholeWave,
-}
-
 impl Proposer {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
@@ -90,6 +97,9 @@ impl Proposer {
         signature_service: SignatureService,
         header_size: usize,
         max_header_delay: u64,
+        enable_adaptive_intermediate_spill: bool,
+        adaptive_intermediate_spill_trigger_digests: usize,
+        adaptive_intermediate_spill_cap_digests: usize,
         rx_core: Receiver<(ProposalParents, Round)>,
         rx_workers: Receiver<(Digest, WorkerId)>,
         tx_core: Sender<Header>,
@@ -105,6 +115,11 @@ impl Proposer {
             .collect();
         let solid_step_length = committee.solid_step_length() as u64;
         let solid_wave_length = committee.solid_wave_length() as u64;
+        let local_workers = committee
+            .authorities
+            .get(&name)
+            .map(|authority| authority.workers.len())
+            .unwrap_or(1);
         // Disable the parent grace delay so newly unlocked rounds can be proposed immediately.
         let parent_grace_delay_ms = 0;
 
@@ -115,6 +130,8 @@ impl Proposer {
                 parents: genesis,
                 solid_step_union: HashSet::new(),
                 solid_wave_union: HashSet::new(),
+                wave_back_link_target_round: 0,
+                wave_back_link_author_bitmap: Vec::new(),
                 ready_since: Instant::now(),
                 unlock_order: 0,
             },
@@ -130,15 +147,20 @@ impl Proposer {
                 rx_core,
                 rx_workers,
                 tx_core,
+                local_workers,
+                enable_adaptive_intermediate_spill,
+                adaptive_intermediate_spill_trigger_digests,
+                adaptive_intermediate_spill_cap_digests,
                 unlocked_rounds,
                 proposed_rounds: HashSet::new(),
                 next_unlock_order: 1,
-                digests: VecDeque::with_capacity(2 * header_size),
-                payload_size: 0,
+                intermediate_digests: VecDeque::with_capacity(2 * header_size),
+                intermediate_payload_size: 0,
+                critical_digests: VecDeque::with_capacity(2 * header_size),
+                critical_payload_size: 0,
                 solid_step_length,
                 solid_wave_length,
                 parent_grace_delay: Duration::from_millis(parent_grace_delay_ms),
-                latest_observed_wave: 0,
             }
             .run()
             .await;
@@ -160,15 +182,18 @@ impl Proposer {
         let (_old_len, _merged_len) = Self::merge_parents(&mut state.parents, update.parents);
         state.solid_step_union.extend(update.solid_step_union);
         state.solid_wave_union.extend(update.solid_wave_union);
+        if state.wave_back_link_target_round == 0 {
+            state.wave_back_link_target_round = update.wave_back_link_target_round;
+        }
+        if state.wave_back_link_target_round == update.wave_back_link_target_round {
+            merge_author_bitmaps(
+                &mut state.wave_back_link_author_bitmap,
+                &update.wave_back_link_author_bitmap,
+            );
+        }
         (
-            state
-                .solid_step_union
-                .len()
-                .saturating_sub(solid_step_old_len),
-            state
-                .solid_wave_union
-                .len()
-                .saturating_sub(solid_wave_old_len),
+            state.solid_step_union.len().saturating_sub(solid_step_old_len),
+            state.solid_wave_union.len().saturating_sub(solid_wave_old_len),
         )
     }
 
@@ -183,61 +208,39 @@ impl Proposer {
     }
 
     fn is_critical_round(&self, round: Round) -> bool {
-        round > 1 && round % self.solid_step_length == 0
-    }
-
-    fn is_intermediate_round(&self, round: Round) -> bool {
-        round > 1 && !self.is_critical_round(round)
-    }
-
-    fn next_critical_round(&self, round: Round) -> Option<Round> {
-        if !self.is_intermediate_round(round) {
-            return None;
-        }
-
-        Some(((round / self.solid_step_length) + 1) * self.solid_step_length)
-    }
-
-    fn critical_round_started(&self, round: Round) -> bool {
-        self.unlocked_rounds
-            .keys()
-            .chain(self.proposed_rounds.iter())
-            .any(|candidate| self.is_critical_round(*candidate) && *candidate >= round)
-    }
-
-    fn is_obsolete_intermediate_round(&self, round: Round) -> bool {
-        self.next_critical_round(round)
-            .map(|next_critical| self.critical_round_started(next_critical))
-            .unwrap_or(false)
-    }
-
-    fn drop_obsolete_intermediate_rounds(&mut self, critical_round: Round) {
-        let stale_rounds: Vec<_> = self
-            .unlocked_rounds
-            .keys()
-            .copied()
-            .filter(|round| {
-                self.next_critical_round(*round)
-                    .map(|next_critical| next_critical <= critical_round)
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        for stale_round in stale_rounds {
-            self.unlocked_rounds.remove(&stale_round);
-            debug!(
-                "Dropping stale intermediate round {} because critical round {} already started",
-                stale_round, critical_round
-            );
-        }
+        round > 1 && (round - 1) % self.solid_step_length == 0
     }
 
     fn is_round_ready(&self, round: Round, state: &UnlockedRound) -> bool {
         round == 1 || state.ready_since.elapsed() >= self.parent_grace_delay
     }
 
-    fn next_recheck_deadline(&self, payload_deadline: Instant) -> Instant {
-        let mut next_deadline = payload_deadline;
+    fn uses_intermediate_payload_queue(&self) -> bool {
+        self.local_workers > 1 || self.enable_adaptive_intermediate_spill
+    }
+
+    fn should_spill_to_intermediate(&self) -> bool {
+        self.enable_adaptive_intermediate_spill
+            && self.critical_digests.len() >= self.adaptive_intermediate_spill_trigger_digests
+            && self.intermediate_digests.len() < self.adaptive_intermediate_spill_cap_digests
+    }
+
+    fn next_recheck_deadline(
+        &self,
+        proposal_deadline: Instant,
+        critical_payload_deadline: Option<Instant>,
+        intermediate_payload_deadline: Option<Instant>,
+    ) -> Instant {
+        let mut next_deadline = std::iter::once(proposal_deadline)
+            .chain(critical_payload_deadline.into_iter())
+            .chain(
+                self.uses_intermediate_payload_queue()
+                    .then_some(intermediate_payload_deadline)
+                    .into_iter()
+                    .flatten(),
+            )
+            .min()
+            .unwrap_or(proposal_deadline);
 
         for (round, state) in &self.unlocked_rounds {
             if self.proposed_rounds.contains(round) || state.parents.is_empty() {
@@ -257,160 +260,13 @@ impl Proposer {
         next_deadline
     }
 
-    fn wave_of(&self, round: Round) -> Round {
-        if self.solid_wave_length == 0 {
-            return 0;
-        }
-
-        round.saturating_sub(1) / self.solid_wave_length
-    }
-
-    fn highest_unlocked_critical_round_in_wave(&self, wave: Round) -> Option<Round> {
-        self.unlocked_rounds
-            .keys()
-            .copied()
-            .filter(|round| self.wave_of(*round) == wave && self.is_critical_round(*round))
-            .max()
-    }
-
-    fn highest_unfinished_critical_round_in_wave(&self, wave: Round) -> Option<Round> {
-        let wave_start = wave.saturating_mul(self.solid_wave_length).saturating_add(1);
-        let wave_end = wave_start
-            .saturating_add(self.solid_wave_length.saturating_sub(1));
-
-        (wave_start..=wave_end)
-            .rev()
-            .find(|round| {
-                self.is_critical_round(*round) && !self.proposed_rounds.contains(round)
-            })
-    }
-
-    fn wave_has_proposed_critical_round(&self, wave: Round) -> bool {
-        self.proposed_rounds
-            .iter()
-            .any(|round| self.wave_of(*round) == wave && self.is_critical_round(*round))
-    }
-
-    fn stale_wave_policy(&self, wave: Round) -> StaleWavePolicy {
-        if self.wave_has_proposed_critical_round(wave) {
-            self.highest_unfinished_critical_round_in_wave(wave)
-                .map(StaleWavePolicy::KeepOnlyRound)
-                .unwrap_or(StaleWavePolicy::DropWholeWave)
-        } else if let Some(retained_round) = self.highest_unlocked_critical_round_in_wave(wave) {
-            StaleWavePolicy::KeepOnlyRound(retained_round)
-        } else {
-            StaleWavePolicy::KeepWholeWave
-        }
-    }
-
-    fn drop_stale_wave_rounds(&mut self) {
-        if self.latest_observed_wave == 0 {
-            return;
-        }
-
-        let stale_waves: HashSet<_> = self
-            .unlocked_rounds
-            .keys()
-            .copied()
-            .map(|round| self.wave_of(round))
-            .filter(|wave| *wave < self.latest_observed_wave)
-            .collect();
-
-        for stale_wave in stale_waves {
-            match self.stale_wave_policy(stale_wave) {
-                StaleWavePolicy::KeepWholeWave => {
-                    debug!(
-                        "Retaining stale wave {} because it does not yet contain a critical round",
-                        stale_wave
-                    );
-                }
-                StaleWavePolicy::KeepOnlyRound(retained_round) => {
-                    let stale_rounds: Vec<_> = self
-                        .unlocked_rounds
-                        .keys()
-                        .copied()
-                        .filter(|round| {
-                            self.wave_of(*round) == stale_wave && *round != retained_round
-                        })
-                        .collect();
-
-                    for stale_round in stale_rounds {
-                        self.unlocked_rounds.remove(&stale_round);
-                        debug!(
-                            "Discarding parents for stale round {} because wave {} lags active wave {} and critical round {} is being retained",
-                            stale_round, stale_wave, self.latest_observed_wave, retained_round
-                        );
-                    }
-                }
-                StaleWavePolicy::DropWholeWave => {
-                    let stale_rounds: Vec<_> = self
-                        .unlocked_rounds
-                        .keys()
-                        .copied()
-                        .filter(|round| self.wave_of(*round) == stale_wave)
-                        .collect();
-
-                    for stale_round in stale_rounds {
-                        self.unlocked_rounds.remove(&stale_round);
-                        debug!(
-                            "Discarding parents for stale round {} because wave {} already has a critical round and lags active wave {}",
-                            stale_round, stale_wave, self.latest_observed_wave
-                        );
-                    }
-                }
-            }
-        }
-    }
-
     fn unlock_round(&mut self, round: Round, parent_update: ProposalParents) {
-        let round_wave = self.wave_of(round);
-        if round_wave < self.latest_observed_wave {
-            match self.stale_wave_policy(round_wave) {
-                StaleWavePolicy::KeepWholeWave => {}
-                StaleWavePolicy::KeepOnlyRound(retained_round) if round == retained_round => {}
-                StaleWavePolicy::KeepOnlyRound(retained_round) => {
-                    self.unlocked_rounds.remove(&round);
-                    debug!(
-                        "Discarding parents for round {} because wave {} is older than active wave {} and critical round {} is being retained",
-                        round, round_wave, self.latest_observed_wave, retained_round
-                    );
-                    return;
-                }
-                StaleWavePolicy::DropWholeWave => {
-                    self.unlocked_rounds.remove(&round);
-                    debug!(
-                        "Discarding parents for round {} because wave {} is older than active wave {} and already has a critical round",
-                        round, round_wave, self.latest_observed_wave
-                    );
-                    return;
-                }
-            }
-        }
-
-        if round_wave > self.latest_observed_wave {
-            self.latest_observed_wave = round_wave;
-            self.drop_stale_wave_rounds();
-        }
-
         if self.proposed_rounds.contains(&round) {
             debug!(
                 "Received stale parents for already proposed round {}",
                 round
             );
             return;
-        }
-
-        if self.is_intermediate_round(round) && self.is_obsolete_intermediate_round(round) {
-            self.unlocked_rounds.remove(&round);
-            debug!(
-                "Discarding intermediate round {} because its next critical round has already started",
-                round
-            );
-            return;
-        }
-
-        if self.is_critical_round(round) {
-            self.drop_obsolete_intermediate_rounds(round);
         }
 
         match self.unlocked_rounds.get_mut(&round) {
@@ -432,6 +288,8 @@ impl Proposer {
                         parents: parent_update.parents,
                         solid_step_union: parent_update.solid_step_union,
                         solid_wave_union: parent_update.solid_wave_union,
+                        wave_back_link_target_round: parent_update.wave_back_link_target_round,
+                        wave_back_link_author_bitmap: parent_update.wave_back_link_author_bitmap,
                         ready_since: Instant::now(),
                         unlock_order,
                     },
@@ -446,11 +304,16 @@ impl Proposer {
 
     fn next_proposal_round(
         &self,
-        timer_expired: bool,
-        enough_digests: bool,
+        proposal_timer_expired: bool,
+        critical_payload_timer_expired: bool,
+        critical_enough_digests: bool,
+        intermediate_payload_timer_expired: bool,
+        intermediate_enough_digests: bool,
     ) -> Option<ProposalDecision> {
-        let payload_trigger = timer_expired || enough_digests;
-        let has_payload = !self.digests.is_empty();
+        let critical_payload_trigger =
+            critical_payload_timer_expired || critical_enough_digests;
+        let intermediate_payload_trigger =
+            intermediate_payload_timer_expired || intermediate_enough_digests;
 
         if let Some((round, _)) = self
             .unlocked_rounds
@@ -468,10 +331,6 @@ impl Proposer {
                 round: *round,
                 include_payload: false,
             });
-        }
-
-        if !payload_trigger {
-            return None;
         }
 
         let critical_round = self
@@ -498,22 +357,122 @@ impl Proposer {
             .min_by_key(|(_, state)| state.unlock_order)
             .map(|(round, _)| *round);
 
-        let selected_round = match (critical_round, intermediate_round) {
-            (Some(critical_round), Some(_)) if has_payload => Some(critical_round),
-            (_, Some(intermediate_round)) => Some(intermediate_round),
-            (Some(critical_round), None) => Some(critical_round),
-            (None, None) => None,
-        }?;
+        if !self.uses_intermediate_payload_queue() {
+            let critical_has_payload = !self.critical_digests.is_empty();
+            let critical_include_payload = critical_has_payload && critical_payload_trigger;
+            let critical_eligible = critical_round.is_some()
+                && (proposal_timer_expired || critical_payload_trigger);
+            let intermediate_eligible = intermediate_round.is_some() && proposal_timer_expired;
 
-        Some(ProposalDecision {
-            round: selected_round,
-            include_payload: has_payload,
-        })
+            return match (critical_round, intermediate_round) {
+                (Some(critical_round), Some(intermediate_round)) => {
+                    if critical_include_payload {
+                        Some(ProposalDecision {
+                            round: critical_round,
+                            include_payload: true,
+                        })
+                    } else if intermediate_eligible {
+                        Some(ProposalDecision {
+                            round: intermediate_round,
+                            include_payload: false,
+                        })
+                    } else if critical_eligible {
+                        Some(ProposalDecision {
+                            round: critical_round,
+                            include_payload: false,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                (Some(critical_round), None) if critical_eligible => Some(ProposalDecision {
+                    round: critical_round,
+                    include_payload: critical_include_payload,
+                }),
+                (None, Some(intermediate_round)) if intermediate_eligible => {
+                    Some(ProposalDecision {
+                        round: intermediate_round,
+                        include_payload: false,
+                    })
+                }
+                _ => None,
+            };
+        }
+
+        let critical_has_payload = !self.critical_digests.is_empty();
+        let intermediate_has_payload = !self.intermediate_digests.is_empty();
+        let critical_include_payload = critical_has_payload && critical_payload_trigger;
+        let intermediate_include_payload =
+            intermediate_has_payload && intermediate_payload_trigger;
+        let critical_eligible = critical_round.is_some()
+            && (proposal_timer_expired || critical_payload_trigger);
+        let intermediate_eligible = intermediate_round.is_some()
+            && (proposal_timer_expired || intermediate_payload_trigger);
+
+        match (critical_round, intermediate_round) {
+            (Some(critical_round), Some(intermediate_round)) => {
+                if critical_include_payload {
+                    Some(ProposalDecision {
+                        round: critical_round,
+                        include_payload: true,
+                    })
+                } else if intermediate_eligible {
+                    Some(ProposalDecision {
+                        round: intermediate_round,
+                        include_payload: intermediate_include_payload,
+                    })
+                } else if critical_eligible {
+                    Some(ProposalDecision {
+                        round: critical_round,
+                        include_payload: false,
+                    })
+                } else {
+                    None
+                }
+            }
+            (Some(critical_round), None) if critical_eligible => Some(ProposalDecision {
+                round: critical_round,
+                include_payload: critical_include_payload,
+            }),
+            (None, Some(intermediate_round)) if intermediate_eligible => Some(ProposalDecision {
+                round: intermediate_round,
+                include_payload: intermediate_include_payload,
+            }),
+            _ => None,
+        }
     }
 
-    fn take_payload_for_header(&mut self) -> BTreeMap<Digest, WorkerId> {
-        self.payload_size = 0;
-        self.digests.drain(..).collect()
+    fn payload_queue_for_worker(&self, worker_id: WorkerId) -> RoundClass {
+        if !self.uses_intermediate_payload_queue() {
+            RoundClass::Critical
+        } else if self.enable_adaptive_intermediate_spill {
+            if self.should_spill_to_intermediate() {
+                RoundClass::Intermediate
+            } else {
+                RoundClass::Critical
+            }
+        } else if worker_id % 2 == 0 {
+            RoundClass::Intermediate
+        } else {
+            RoundClass::Critical
+        }
+    }
+
+    fn take_payload_for_round_class(
+        &mut self,
+        round_class: RoundClass,
+    ) -> BTreeMap<Digest, WorkerId> {
+        match round_class {
+            RoundClass::Critical => {
+                self.critical_payload_size = 0;
+                self.critical_digests.drain(..).collect()
+            }
+            RoundClass::Intermediate => {
+                self.intermediate_payload_size = 0;
+                self.intermediate_digests.drain(..).collect()
+            }
+            RoundClass::Bootstrap => BTreeMap::new(),
+        }
     }
 
     async fn make_header(
@@ -524,7 +483,7 @@ impl Proposer {
     ) {
         // Make a new header.
         let payload = if include_payload {
-            self.take_payload_for_header()
+            self.take_payload_for_round_class(self.round_class(round))
         } else {
             BTreeMap::new()
         };
@@ -555,17 +514,17 @@ impl Proposer {
         // - all other rounds: vertices = merged = union(parent.merged)
         debug!("the number of the parents is {}", header.parents.len());
 
-        let is_solid_step_init_round =
-            round == 1 || (round > 1 && round % self.solid_step_length == 0);
-        let is_solid_wave_end_round =
-            round == 1 || (round > 1 && round % self.solid_wave_length == 0);
+        let is_solid_step_boundary =
+            round == 1 || (round > 1 && (round - 1) % self.solid_step_length == 0);
+        let is_solid_wave_boundary =
+            round == 1 || (round > 1 && (round - 1) % self.solid_wave_length == 0);
         if round == 1 {
             let parent_set: HashSet<Digest> = unlocked_round.parents.into_iter().collect();
             header.store_solid_step_vertex(parent_set.clone());
             header.store_solid_step_merged_vertices(parent_set.clone());
             header.store_solid_wave_vertex(parent_set.clone());
             header.store_solid_wave_merged_vertices(parent_set);
-        } else if is_solid_step_init_round {
+        } else if is_solid_step_boundary {
             header.store_solid_step_vertex(unlocked_round.solid_step_union);
 
             let mut self_only: HashSet<Digest> = HashSet::new();
@@ -575,7 +534,7 @@ impl Proposer {
             header.store_solid_step_vertex(unlocked_round.solid_step_union.clone());
             header.store_solid_step_merged_vertices(unlocked_round.solid_step_union);
         }
-        if is_solid_wave_end_round {
+        if is_solid_wave_boundary {
             header.store_solid_wave_vertex(unlocked_round.solid_wave_union);
 
             let mut self_only: HashSet<Digest> = HashSet::new();
@@ -585,6 +544,10 @@ impl Proposer {
             header.store_solid_wave_vertex(unlocked_round.solid_wave_union.clone());
             header.store_solid_wave_merged_vertices(unlocked_round.solid_wave_union);
         }
+        header.store_wave_back_link_summary(
+            unlocked_round.wave_back_link_target_round,
+            unlocked_round.wave_back_link_author_bitmap,
+        );
         debug!(
             "Current round: {}, solid_step_vertices={}, solid_wave_vertices={}",
             round,
@@ -609,28 +572,45 @@ impl Proposer {
     pub async fn run(&mut self) {
         debug!("Dag starting with bootstrap round 1 unlocked");
 
-        let mut payload_deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
-        let timer = sleep_until(payload_deadline);
+        let mut proposal_deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
+        let mut critical_payload_deadline: Option<Instant> = None;
+        let mut intermediate_payload_deadline: Option<Instant> = None;
+        let timer = sleep_until(proposal_deadline);
         tokio::pin!(timer);
 
         loop {
-            let enough_digests = self.payload_size >= self.header_size;
-            let timer_expired = Instant::now() >= payload_deadline;
-            self.drop_stale_wave_rounds();
-            if let Some(decision) = self.next_proposal_round(timer_expired, enough_digests) {
-                self.latest_observed_wave =
-                    self.latest_observed_wave.max(self.wave_of(decision.round));
+            let now = Instant::now();
+            let proposal_timer_expired = now >= proposal_deadline;
+            let critical_enough_digests = self.critical_payload_size >= self.header_size;
+            let intermediate_enough_digests = self.uses_intermediate_payload_queue()
+                && self.intermediate_payload_size >= self.header_size;
+            let critical_payload_timer_expired =
+                critical_payload_deadline.is_some_and(|deadline| now >= deadline);
+            let intermediate_payload_timer_expired = self.uses_intermediate_payload_queue()
+                && intermediate_payload_deadline.is_some_and(|deadline| now >= deadline);
+
+            if let Some(decision) = self.next_proposal_round(
+                proposal_timer_expired,
+                critical_payload_timer_expired,
+                critical_enough_digests,
+                intermediate_payload_timer_expired,
+                intermediate_enough_digests,
+            ) {
                 if decision.round != 1 {
                     debug!(
-                        "Proposing {:?} round {} (payload={}, timer_expired={}, enough_digests={})",
+                        "Proposing {:?} round {} (payload={}, proposal_timer_expired={}, critical_payload_timer_expired={}, critical_enough_digests={}, intermediate_payload_timer_expired={}, intermediate_enough_digests={})",
                         self.round_class(decision.round),
                         decision.round,
                         decision.include_payload,
-                        timer_expired,
-                        enough_digests
+                        proposal_timer_expired,
+                        critical_payload_timer_expired,
+                        critical_enough_digests,
+                        intermediate_payload_timer_expired,
+                        intermediate_enough_digests
                     );
                 }
 
+                let selected_class = self.round_class(decision.round);
                 let proposal_state = self
                     .unlocked_rounds
                     .remove(&decision.round)
@@ -638,15 +618,23 @@ impl Proposer {
                 self.make_header(decision.round, proposal_state, decision.include_payload)
                     .await;
                 self.proposed_rounds.insert(decision.round);
-                if decision.include_payload && self.is_critical_round(decision.round) {
-                    self.drop_obsolete_intermediate_rounds(decision.round);
+                if decision.include_payload {
+                    match selected_class {
+                        RoundClass::Critical => critical_payload_deadline = None,
+                        RoundClass::Intermediate => intermediate_payload_deadline = None,
+                        RoundClass::Bootstrap => {}
+                    }
                 }
-                payload_deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
+                proposal_deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
 
                 continue;
             }
 
-            let next_deadline = self.next_recheck_deadline(payload_deadline);
+            let next_deadline = self.next_recheck_deadline(
+                proposal_deadline,
+                critical_payload_deadline,
+                intermediate_payload_deadline,
+            );
             timer.as_mut().reset(next_deadline);
 
             tokio::select! {
@@ -655,8 +643,31 @@ impl Proposer {
                     self.unlock_round(proposal_round, parent_update);
                 }
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
-                    self.payload_size += digest.size();
-                    self.digests.push_back((digest, worker_id));
+                    let queue = self.payload_queue_for_worker(worker_id);
+                    let payload_deadline =
+                        Instant::now() + Duration::from_millis(self.max_header_delay);
+                    match queue {
+                        RoundClass::Critical => {
+                            self.critical_payload_size += digest.size();
+                            self.critical_digests.push_back((digest, worker_id));
+                            critical_payload_deadline.get_or_insert(payload_deadline);
+                        }
+                        RoundClass::Intermediate => {
+                            if self.uses_intermediate_payload_queue() {
+                                self.intermediate_payload_size += digest.size();
+                                self.intermediate_digests.push_back((digest, worker_id));
+                                intermediate_payload_deadline.get_or_insert(payload_deadline);
+                            } else {
+                                debug!(
+                                    "Ignoring unexpected intermediate payload assignment in single-worker mode"
+                                );
+                                self.critical_payload_size += digest.size();
+                                self.critical_digests.push_back((digest, worker_id));
+                                critical_payload_deadline.get_or_insert(payload_deadline);
+                            }
+                        }
+                        RoundClass::Bootstrap => {}
+                    }
                 }
                 () = &mut timer => {
                     // Nothing to do.

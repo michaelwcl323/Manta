@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use anyhow::{Context, Result};
 use bytes::BufMut as _;
 use bytes::BytesMut;
@@ -5,7 +6,7 @@ use clap::{crate_name, crate_version, App, AppSettings};
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
-use log::{info, warn};
+use log::{debug, info, warn};
 use rand::Rng;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -51,7 +52,7 @@ async fn main() -> Result<()> {
         .collect::<Result<Vec<_>, _>>()
         .context("Invalid socket address format")?;
 
-    info!("Node address: {}", target);
+    debug!("Node address: {}", target);
 
     // NOTE: This log entry is used to compute performance.
     info!("Transactions size: {} B", size);
@@ -144,7 +145,7 @@ impl Client {
 
     pub async fn wait(&self) {
         // Wait for all nodes to be online.
-        info!("Waiting for all nodes to be online...");
+        debug!("Waiting for all nodes to be online...");
         join_all(self.nodes.iter().cloned().map(|address| {
             tokio::spawn(async move {
                 while TcpStream::connect(address).await.is_err() {

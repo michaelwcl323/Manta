@@ -1,3 +1,4 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::batch_maker::{Batch, Transaction};
 use crate::worker::WorkerMessage;
 use bytes::Bytes;
@@ -53,6 +54,22 @@ pub fn committee() -> Committee {
                 )
             })
             .collect(),
+        sigma: 2,
+        kappa: 2,
+        reference: 3,
+        coverage: 3,
+        allow_cross_step_weak_edges: true,
+        enable_fast_coin: false,
+        enable_commit_recheck: true,
+        fast_coin_candidate_threshold: 0,
+        solid_candidate_threshold: 0,
+        solid_commit_trigger_on_solid_step: false,
+        attack_enabled: false,
+        attack_start_secs: 0,
+        attack_duration_secs: 0,
+        attack_group_size: 0,
+        attack_limit_headers: false,
+        attack_limit_certificates: true,
     }
 }
 

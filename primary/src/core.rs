@@ -1,6 +1,7 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::aggregators::{CertificatesAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, ProposalParents, Vote};
+use crate::messages::{merge_author_bitmaps, set_author_bit, Certificate, Header, ProposalParents, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
@@ -8,11 +9,12 @@ use bytes::Bytes;
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -65,6 +67,8 @@ pub struct Core {
     network: ReliableSender,
     /// Keeps the cancel handlers of the messages we sent.
     cancel_handlers: HashMap<Round, Vec<CancelHandler>>,
+    /// Node-local attack clock.
+    boot_instant: Instant,
 }
 
 impl Core {
@@ -73,6 +77,104 @@ impl Core {
             .authorities
             .keys()
             .position(|authority| authority == key)
+    }
+
+    fn wave_back_link_summary(&self, parents: &[Certificate], round: Round) -> (Round, Vec<u8>) {
+        let Some(target_round) = self.committee.wave_back_link_tracking_round(round) else {
+            return (0, Vec::new());
+        };
+
+        let mut bitmap = vec![0; self.committee.authority_bitmap_len()];
+        for parent in parents {
+            if parent.round() == target_round {
+                if let Some(index) = self.committee.authority_index(&parent.origin()) {
+                    set_author_bit(&mut bitmap, index);
+                }
+            }
+            if parent.header.wave_back_link_target_round == target_round {
+                merge_author_bitmaps(&mut bitmap, &parent.header.wave_back_link_author_bitmap);
+            }
+        }
+
+        (target_round, bitmap)
+    }
+
+    fn attack_active_for_headers(&self) -> bool {
+        self.committee.attack_limit_headers && self.attack_active_now()
+    }
+
+    fn attack_active_for_certificates(&self) -> bool {
+        self.committee.attack_limit_certificates && self.attack_active_now()
+    }
+
+    fn attack_active_now(&self) -> bool {
+        if !self.committee.attack_enabled {
+            return false;
+        }
+        let elapsed = self.boot_instant.elapsed();
+        let start = Duration::from_secs(self.committee.attack_start_secs);
+        if elapsed < start {
+            return false;
+        }
+        let duration_secs = self.committee.attack_duration_secs;
+        if duration_secs == 0 {
+            return true;
+        }
+        elapsed < start + Duration::from_secs(duration_secs)
+    }
+
+    fn spawn_attack_log_task(committee: Committee, boot_instant: Instant) {
+        if !committee.attack_enabled {
+            return;
+        }
+
+        tokio::spawn(async move {
+            let attack_start =
+                tokio::time::Instant::from_std(boot_instant + Duration::from_secs(committee.attack_start_secs));
+            tokio::time::sleep_until(attack_start).await;
+            info!(
+                "start attack: headers_limited={} certificates_limited={} \
+                 start_secs={} duration_secs={} group_size={} kappa={} reference={} coverage={}",
+                committee.attack_limit_headers,
+                committee.attack_limit_certificates,
+                committee.attack_start_secs,
+                committee.attack_duration_secs,
+                committee.attack_group_size,
+                committee.kappa,
+                committee.reference,
+                committee.coverage,
+            );
+
+            if committee.attack_duration_secs > 0 {
+                let attack_end = attack_start + Duration::from_secs(committee.attack_duration_secs);
+                tokio::time::sleep_until(attack_end).await;
+                info!(
+                    "end attack: elapsed_since_boot_secs={} duration_secs={}",
+                    committee.attack_start_secs + committee.attack_duration_secs,
+                    committee.attack_duration_secs,
+                );
+            }
+        });
+    }
+
+    fn broadcast_targets(&self, filter_for_headers: bool) -> Vec<(PublicKey, std::net::SocketAddr)> {
+        let attack_active = if filter_for_headers {
+            self.attack_active_for_headers()
+        } else {
+            self.attack_active_for_certificates()
+        };
+
+        self.committee
+            .others_primaries(&self.name)
+            .into_iter()
+            .filter(|(recipient, _)| {
+                !attack_active
+                    || self
+                        .committee
+                        .selective_attack_allows_sender_to_recipient(&self.name, recipient)
+            })
+            .map(|(recipient, addresses)| (recipient, addresses.primary_to_primary))
+            .collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -92,6 +194,8 @@ impl Core {
         tx_proposer: Sender<(ProposalParents, Round)>,
     ) {
         tokio::spawn(async move {
+            let boot_instant = Instant::now();
+            Self::spawn_attack_log_task(committee.clone(), boot_instant);
             Self {
                 name,
                 committee,
@@ -114,6 +218,7 @@ impl Core {
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
+                boot_instant,
             }
             .run()
             .await;
@@ -137,18 +242,13 @@ impl Core {
             "Broadcasting header {} (round {}) to other primaries",
             header.id, header.round
         );
-        let addresses: Vec<_> = self
-            .committee
-            .others_primaries(&self.name)
-            .iter()
-            .map(|(_, x)| x.primary_to_primary)
-            .collect();
+        let targets = self.broadcast_targets(true);
         let bytes = bincode::serialize(&PrimaryMessage::Header(header.clone()))
             .expect("Failed to serialize our own header");
         // Send to each primary individually so we can log per-node success/failure.
         let header_id = header.id.clone();
         let header_round = header.round;
-        for address in addresses {
+        for (_, address) in targets {
             let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
             let id = header_id.clone();
             tokio::spawn(async move {
@@ -202,23 +302,20 @@ impl Core {
             return Ok(());
         }
 
-        // Check the parent certificates. We allow commit-time weak edges from the whole
-        // solid-wave window, but only the solid-step window contributes to processing.
+        // Check the parent certificates. Weak parents are always allowed inside
+        // the current solid step; optionally they may extend into earlier solid
+        // steps that still lie inside the current solid-wave window.
         let round = header.round as u64;
-        let solid_step_length = self.committee.solid_step_length();
-        let solid_wave_length = self.committee.solid_wave_length();
         let is_solid_step = self.committee.is_solid_step(round);
-        let step_index: Round = ((round - 1) % solid_step_length) + 1;
-        let wave_index: Round = ((round - 1) % solid_wave_length) + 1;
-        let regular_weak_start: Round = round.saturating_sub(step_index);
-        let commit_weak_start: Round = round.saturating_sub(wave_index);
+        let regular_weak_start = self.committee.solid_step_parent_start(round);
+        let cross_step_weak_start = self.committee.cross_step_weak_parent_start(round);
 
         let mut stake = 0u64;
         let mut solid_step_union = HashSet::new();
 
         for x in &parents {
             ensure!(
-                x.round() >= commit_weak_start && x.round() < round,
+                x.round() >= cross_step_weak_start && x.round() < round,
                 DagError::MalformedHeader(header.id.clone())
             );
             if x.round() >= regular_weak_start {
@@ -241,6 +338,12 @@ impl Core {
                 DagError::HeaderRequiresQuorum(header.id.clone())
             );
         }
+
+        let (expected_back_link_round, _) = self.wave_back_link_summary(&parents, round);
+        ensure!(
+            header.wave_back_link_target_round == expected_back_link_round,
+            DagError::MalformedHeader(header.id.clone())
+        );
 
         // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
         // reschedule processing of this header once we have it.
@@ -364,15 +467,10 @@ impl Core {
                 "Broadcasting certificate {} (round {}) to other primaries",
                 cert_id, cert_round
             );
-            let addresses: Vec<_> = self
-                .committee
-                .others_primaries(&self.name)
-                .iter()
-                .map(|(_, x)| x.primary_to_primary)
-                .collect();
+            let targets = self.broadcast_targets(false);
             let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
                 .expect("Failed to serialize our own certificate");
-            for address in addresses {
+            for (_, address) in targets {
                 let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
                 let id = cert_id.clone();
                 tokio::spawn(async move {
@@ -545,7 +643,7 @@ impl Core {
         // );
 
         // // Verify the vote.
-        vote.verify(&self.committee).map_err(DagError::from);
+        let _ = vote.verify(&self.committee).map_err(DagError::from);
         Ok(())
     }
 

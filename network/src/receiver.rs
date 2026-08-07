@@ -1,9 +1,10 @@
+// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::NetworkError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::SplitSink;
 use futures::stream::StreamExt as _;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::error::Error;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
@@ -57,7 +58,7 @@ impl<Handler: MessageHandler> Receiver<Handler> {
                     continue;
                 }
             };
-            info!("Incoming connection established with {}", peer);
+            debug!("Incoming connection established with {}", peer);
             Self::spawn_runner(socket, peer, self.handler.clone()).await;
         }
     }
