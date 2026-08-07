@@ -672,7 +672,7 @@ Due to limited resources of C6220 machines, sometimes we cannot generate experim
 
 Please use other nodes for experiments, and modify `node_type` and `aggregate` in `cloudlab_settings.json`
 
-## 6. Contact
+## 7. Contact
 
 Please use the repository's GitHub issue tracker for artifact questions and reproducibility problems.
 
