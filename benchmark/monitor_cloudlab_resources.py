@@ -49,14 +49,44 @@ class MonitorError(Exception):
     pass
 
 
+def normalize_settings(data: Dict) -> Dict:
+    """Accept both AE settings (key.path / hosts) and legacy (ssh_key_path / servers)."""
+    out = dict(data)
+
+    if not out.get("ssh_key_path"):
+        key = out.get("key")
+        if isinstance(key, dict) and key.get("path"):
+            out["ssh_key_path"] = key["path"]
+        elif isinstance(key, str) and key:
+            out["ssh_key_path"] = key
+
+    if not out.get("ssh_key_password"):
+        key = out.get("key")
+        if isinstance(key, dict) and key.get("password"):
+            out["ssh_key_password"] = key["password"]
+
+    if "servers" not in out or not out.get("servers"):
+        hosts = out.get("hosts")
+        if isinstance(hosts, list) and hosts:
+            out["servers"] = hosts
+
+    return out
+
+
 def load_settings(settings_path: Path) -> Dict:
     if not settings_path.exists():
         raise MonitorError(f"Settings file not found: {settings_path}")
     with settings_path.open("r") as f:
         data = json.load(f)
-    for key in ("ssh_key_path", "servers"):
-        if key not in data:
-            raise MonitorError(f"Missing '{key}' in settings file")
+    data = normalize_settings(data)
+    if not data.get("ssh_key_path"):
+        raise MonitorError(
+            "Missing SSH key path: set ssh_key_path or key.path in settings file"
+        )
+    if not data.get("servers"):
+        raise MonitorError(
+            "Missing hosts: set servers or hosts in settings file"
+        )
     return data
 
 

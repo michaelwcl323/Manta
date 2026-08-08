@@ -20,6 +20,8 @@ import re
 import shlex
 import sys
 import signal
+import os
+import time
 
 from benchmark.config import Committee, Key, NodeParameters, BenchParameters, ConfigError
 from benchmark.utils import BenchError, Print, PathMaker
@@ -165,13 +167,54 @@ class CloudLabBench:
             str(interval),
         ]
         try:
+            run_path = Path(run_dir)
+            run_path.mkdir(parents=True, exist_ok=True)
+            log_path = run_path / 'resource_monitor.log'
+            log_fh = open(log_path, 'w')
+            env = os.environ.copy()
+            # Forward key password if present in settings / env for encrypted keys.
+            try:
+                settings_file = benchmark_dir / 'cloudlab_settings.json'
+                if settings_file.exists():
+                    import json as _json
+                    _cfg = _json.loads(settings_file.read_text())
+                    pw = (
+                        _cfg.get('ssh_key_password')
+                        or ((_cfg.get('key') or {}) if isinstance(_cfg.get('key'), dict) else {}).get('password')
+                        or env.get('SSH_KEY_PASSWORD')
+                    )
+                    if pw and not env.get('SSH_KEY_PASSWORD'):
+                        env['SSH_KEY_PASSWORD'] = str(pw)
+            except Exception:
+                pass
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(benchmark_dir),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                env=env,
             )
-            Print.info(f'Started resource monitor (pid={proc.pid})')
+            # Keep handle alive for the child process lifetime.
+            proc._resource_monitor_log_fh = log_fh  # type: ignore[attr-defined]
+            # Fail loud if the monitor dies immediately (e.g. settings schema mismatch).
+            time.sleep(0.5)
+            if proc.poll() is not None:
+                log_fh.flush()
+                detail = ''
+                try:
+                    detail = log_path.read_text(errors='replace')[-500:]
+                except Exception:
+                    pass
+                Print.warn(
+                    f'Resource monitor exited early (code={proc.returncode}). '
+                    f'See {log_path}. {detail}'
+                )
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
+                return None
+            Print.info(f'Started resource monitor (pid={proc.pid}, log={log_path})')
             return proc
         except Exception as e:
             Print.warn(f'Failed to start resource monitor: {e}')
@@ -194,6 +237,13 @@ class CloudLabBench:
             except Exception:
                 try:
                     proc.kill()
+                except Exception:
+                    pass
+        finally:
+            log_fh = getattr(proc, '_resource_monitor_log_fh', None)
+            if log_fh is not None:
+                try:
+                    log_fh.close()
                 except Exception:
                     pass
 
