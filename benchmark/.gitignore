@@ -141,3 +141,13 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# AE / local bench outputs — never commit these
+results/
+logs/
+manta_result/
+data/latest/
+data/paper-data/
+bench-*.txt
+summary*.txt
+
