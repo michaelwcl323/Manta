@@ -147,3 +147,13 @@ cython_debug/
 *.exe
 manta_result/
 result_decouple/
+
+# AE / local bench outputs — never commit these
+results/
+logs/
+manta_result/
+data/latest/
+data/paper-data/
+bench-*.txt
+summary*.txt
+
