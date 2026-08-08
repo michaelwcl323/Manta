@@ -529,11 +529,40 @@ def _unique_dest(out_dir: Path, name: str) -> Path:
         i += 1
 
 
+_KEEP_BENCH_DIRS = {
+    ".venv",
+    "benchmark",  # python package under benchmark/
+    "__pycache__",
+    "data",  # wipe data/latest + data/paper-data explicitly
+}
+
+# Design-tag / campaign output dirs used by Exp3 protocol trees.
+_TAG_DIR_HINTS = (
+    "_experiment",
+    "_faulty",
+    "-faulty",
+    "_forpaper",
+    "forpaper",
+)
+
+
+def _is_leftover_output_dir(path: Path) -> bool:
+    """True for design-tag trees (and any dir already holding summary/bench txt)."""
+    if not path.is_dir() or path.name in _KEEP_BENCH_DIRS:
+        return False
+    if any(hint in path.name for hint in _TAG_DIR_HINTS):
+        return True
+    for pat in ("**/summary*.txt", "**/bench-*.txt", "**/summary.txt"):
+        if any(path.glob(pat)):
+            return True
+    return False
+
+
 def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
     """Remove leftover bench outputs so collect/plot never mix prior runs.
 
     ``logs_only`` clears parse inputs between cells of the same variant (keeps
-    ``results/`` / ``manta_result/`` so earlier rates in the sweep remain).
+    ``results/`` / ``manta_result/`` / design-tag dirs so earlier rates remain).
     """
     targets = ["logs"] if logs_only else [
         "logs",
@@ -555,6 +584,10 @@ def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
             shutil.rmtree(path)
             print(f"[exp3] wiped {path}", flush=True)
     if not logs_only:
+        for child in list(bench_dir.iterdir()):
+            if _is_leftover_output_dir(child):
+                shutil.rmtree(child)
+                print(f"[exp3] wiped {child}", flush=True)
         for path in bench_dir.glob("bench-*.txt"):
             path.unlink(missing_ok=True)
         for path in bench_dir.glob("summary*.txt"):
@@ -563,17 +596,23 @@ def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
             path.unlink(missing_ok=True)
 
 
-def collect_summaries(bench_dir: Path, out_dir: Path) -> int:
+def collect_summaries(bench_dir: Path, out_dir: Path, *, design_tag: str | None = None) -> int:
     """Copy only this-run summary/bench *.txt into results/Figure11*/{result_dir}/.
 
-    Searches ``results/`` and ``manta_result/`` only — never ``data/`` sample trees
-    that some protocol branches historically checked in.
+    Roots:
+      - ``results/`` (chitu)
+      - ``manta_result/`` (manta)
+      - ``{design_tag}/`` (tusk / dag-rider / mahi-mahi)
+
+    Never scans ``data/`` sample trees or unrelated leftover tag dirs.
     """
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     roots = [bench_dir / "results", bench_dir / "manta_result"]
+    if design_tag:
+        roots.append(bench_dir / design_tag)
     patterns = ("**/summary*.txt", "**/bench-*.txt", "**/summary.txt")
     seen: set[Path] = set()
     count = 0
@@ -768,9 +807,11 @@ def main() -> int:
                 )
 
             print(f"[exp3] phase collect: {figure}/{result_dir_name} ...", flush=True)
-            n = collect_summaries(bench_dir, out_dir)
+            design_tag = suite["design_tag_by_variant"][variant_name]
+            n = collect_summaries(bench_dir, out_dir, design_tag=design_tag)
             print(
-                f"[exp3] {figure}/{result_dir_name}: collected {n} files into {out_dir}",
+                f"[exp3] {figure}/{result_dir_name}: collected {n} files into {out_dir} "
+                f"(design_tag={design_tag})",
                 flush=True,
             )
             print(f"[exp3] phase collect: complete ({n} files)", flush=True)

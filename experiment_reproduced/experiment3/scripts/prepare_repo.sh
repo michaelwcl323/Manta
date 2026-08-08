@@ -26,6 +26,11 @@ rm -rf benchmark/logs benchmark/results benchmark/manta_result \
   benchmark/exp1results benchmark/result_decouple \
   benchmark/manta_compare benchmark/manta_final_geo
 rm -f benchmark/bench-*.txt benchmark/summary*.txt benchmark/round_*.csv 2>/dev/null || true
+# Design-tag output trees (tusk_experiment3, mahi_data_forpaper, *-faulty, ...).
+find benchmark -mindepth 1 -maxdepth 1 -type d \( \
+  -name '*_experiment*' -o -name '*_faulty' -o -name '*-faulty' \
+  -o -name '*_forpaper*' -o -name '*forpaper*' \
+\) -exec rm -rf {} + 2>/dev/null || true
 
 if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
