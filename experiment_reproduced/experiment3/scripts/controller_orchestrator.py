@@ -603,8 +603,12 @@ def wipe_remote_repo_logs(
     username: str,
     remote_key: str,
     repo_names: list[str],
+    retries: int = 3,
 ) -> None:
     """Delete protocol log dirs on every replica (and matching local trees).
+
+    Blocks until every host reports no leftover ``*.log`` under the protocol log
+    paths. The next bench cell must not start until this returns successfully.
 
     CloudLabBench.kill(delete_logs=True) runs ``rm -r logs`` without ``cd`` into
     ``$HOME/{repo}``, so stale ``$HOME/{repo}/logs`` survive — especially on
@@ -624,24 +628,60 @@ def wipe_remote_repo_logs(
                 print(f"[exp3] wiped local {path}", flush=True)
 
     repos = " ".join(shlex.quote(n) for n in names)
+    # Remove, then verify: print leftover count (0 == clean).
     remote_cmd = (
-        "set +e; "
+        "set -e; "
         f"for repo in {repos}; do "
         'rm -rf "$HOME/$repo/logs" "$HOME/$repo/benchmark/logs" '
         '"$HOME/$repo/manta_result/logs"; '
-        "done; true"
+        "done; "
+        "left=0; "
+        f"for repo in {repos}; do "
+        'for d in "$HOME/$repo/logs" "$HOME/$repo/benchmark/logs" '
+        '"$HOME/$repo/manta_result/logs"; do '
+        'if [ -d "$d" ]; then '
+        'n=$(find "$d" -type f -name "*.log" 2>/dev/null | wc -l); '
+        "left=$((left + n)); "
+        "fi; "
+        "done; "
+        "done; "
+        'echo "LOGS_LEFT=$left"; '
+        "test \"$left\" -eq 0"
     )
 
-    def _one(host: dict) -> str:
+    def _one(host: dict) -> tuple[str, int, str]:
         h = str(host["hostname"])
         user = host.get("username", username)
-        ssh_host(user, h, remote_cmd, identity=remote_key, check=False)
-        return h
+        last_out = ""
+        for attempt in range(1, retries + 1):
+            cmd = _ssh_base(remote_key, 20) + [f"{user}@{h}", remote_cmd]
+            proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+            last_out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+            if proc.returncode == 0 and "LOGS_LEFT=0" in last_out:
+                return h, 0, last_out
+            print(
+                f"[exp3] wipe retry {attempt}/{retries} host={h} rc={proc.returncode} "
+                f"out={last_out!r}",
+                flush=True,
+            )
+            time.sleep(1.0)
+        return h, 1, last_out
 
-    with ThreadPoolExecutor(max_workers=min(16, max(1, len(hosts)))) as pool:
-        list(pool.map(_one, hosts))
     print(
-        f"[exp3] wiped remote logs on {len(hosts)} hosts for repos={names}",
+        f"[exp3] wiping remote logs on {len(hosts)} hosts for repos={names} "
+        "(blocking until clean)...",
+        flush=True,
+    )
+    with ThreadPoolExecutor(max_workers=min(16, max(1, len(hosts)))) as pool:
+        results = list(pool.map(_one, hosts))
+    failed = [(h, out) for h, rc, out in results if rc != 0]
+    if failed:
+        detail = "; ".join(f"{h}: {out}" for h, out in failed)
+        raise SystemExit(
+            f"[exp3] remote log wipe incomplete on {len(failed)} host(s): {detail}"
+        )
+    print(
+        f"[exp3] remote log wipe complete on {len(hosts)} hosts; proceeding to next cell",
         flush=True,
     )
 
