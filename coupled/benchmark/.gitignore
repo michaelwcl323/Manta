@@ -140,18 +140,3 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
-
-# AE / local bench outputs — never commit these
-results/
-logs/
-manta_result/
-data/latest/
-data/paper-data/
-tusk_coupled/
-exp1results/
-manta_compare/
-manta_final_geo/
-result_decouple/
-bench-*.txt
-summary*.txt
-round_*.csv
