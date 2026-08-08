@@ -542,7 +542,7 @@ PDF under `results/regenerate_graphs/` matching paper Figure 11(a)
 #### Figure 11(b): 50-Replica Large-Scale Performance
 
 Figure 11(b) is reproduced using the 50-replica AWS deployment on branch
-`experiment3` (protocol tree under `manta/`).
+`experiment3`.
 
 See the separate [AWS large-scale experiment README](aws/README.md) for the
 environment setup, execution commands, runtime, output, and expected result.
