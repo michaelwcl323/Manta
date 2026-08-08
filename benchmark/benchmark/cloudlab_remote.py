@@ -1555,6 +1555,11 @@ SCRIPTEOF'''
             if isinstance(e, BenchError):
                 raise
             raise BenchError(f'Failed to start {name} on {hostname}', e)
+        finally:
+            try:
+                c.close()
+            except Exception:
+                pass
 
     def _background_run_batch(self, launches):
         if not launches:
