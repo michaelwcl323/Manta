@@ -17,6 +17,7 @@ import itertools
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -545,7 +546,7 @@ def _meta_from_dirname(name: str) -> dict:
 
 def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False, tag: str = "exp2") -> None:
     """Remove leftover bench outputs so collect/plot never mix prior runs."""
-    targets = ["logs"] if logs_only else [
+    targets = ["logs", "manta_result/logs"] if logs_only else [
         "logs",
         "results",
         "manta_result",
@@ -562,6 +563,45 @@ def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False, tag: str =
             path.unlink(missing_ok=True)
         for path in bench_dir.glob("summary*.txt"):
             path.unlink(missing_ok=True)
+
+
+def wipe_remote_repo_logs(
+    *,
+    hosts: list[dict],
+    username: str,
+    remote_key: str,
+    repo_names: list[str],
+    tag: str = "exp2",
+) -> None:
+    """Delete protocol log dirs on every replica (and matching local trees)."""
+    names = sorted({n for n in repo_names if n})
+    if not names:
+        return
+    home = Path.home()
+    for name in names:
+        for rel in ("logs", "benchmark/logs", "manta_result/logs"):
+            path = home / name / rel
+            if path.exists():
+                shutil.rmtree(path)
+                print(f"[{tag}] wiped local {path}", flush=True)
+    repos = " ".join(shlex.quote(n) for n in names)
+    remote_cmd = (
+        "set +e; "
+        f"for repo in {repos}; do "
+        'rm -rf "$HOME/$repo/logs" "$HOME/$repo/benchmark/logs" '
+        '"$HOME/$repo/manta_result/logs"; '
+        "done; true"
+    )
+
+    def _one(host: dict) -> str:
+        h = str(host["hostname"])
+        user = host.get("username", username)
+        ssh_host(user, h, remote_cmd, identity=remote_key, check=False)
+        return h
+
+    with ThreadPoolExecutor(max_workers=min(16, max(1, len(hosts)))) as pool:
+        list(pool.map(_one, hosts))
+    print(f"[{tag}] wiped remote logs on {len(hosts)} hosts for repos={names}", flush=True)
 
 
 def collect_figure10a_10b(bench_dir: Path, suite: dict, out_dir: Path) -> int:
@@ -786,6 +826,13 @@ def main() -> int:
         cells = suite_cells[suite_name]
         print(f"[exp2] suite={suite_name} cells={len(cells)}", flush=True)
         wipe_bench_artifacts(bench_dir, logs_only=False, tag="exp2")
+        wipe_remote_repo_logs(
+            hosts=hosts,
+            username=username,
+            remote_key=args.remote_key,
+            repo_names=[monorepo_name],
+            tag="exp2",
+        )
         for cell in cells:
             cell_i += 1
             progress(
@@ -802,6 +849,13 @@ def main() -> int:
                 flush=True,
             )
             wipe_bench_artifacts(bench_dir, logs_only=True, tag="exp2")
+            wipe_remote_repo_logs(
+                hosts=hosts,
+                username=username,
+                remote_key=args.remote_key,
+                repo_names=[monorepo_name],
+                tag="exp2",
+            )
             run_cell(
                 bench_dir=bench_dir,
                 settings_path=wan_settings,
