@@ -378,6 +378,13 @@ def main() -> int:
     # Sync summary *.txt only under Figure11a / Figure11c (plot inputs).
     next_phase("sync plot/table inputs")
     local_results = EXP_DIR / "results"
+    # Replace prior local campaign outputs so plots never average old txts.
+    if local_results.exists():
+        for figure in ("Figure11a", "Figure11c"):
+            dest = local_results / figure
+            if dest.exists():
+                shutil.rmtree(dest)
+                print(f"[exp3-local] cleared prior {dest}", flush=True)
     local_results.mkdir(parents=True, exist_ok=True)
     tmp_fetch = EXP_DIR / "logs" / f"_fetch_results_{os.getpid()}"
     if tmp_fetch.exists():

@@ -529,34 +529,58 @@ def _unique_dest(out_dir: Path, name: str) -> Path:
         i += 1
 
 
+def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
+    """Remove leftover bench outputs so collect/plot never mix prior runs.
+
+    ``logs_only`` clears parse inputs between cells of the same variant (keeps
+    ``results/`` / ``manta_result/`` so earlier rates in the sweep remain).
+    """
+    targets = ["logs"] if logs_only else ["logs", "results", "manta_result"]
+    for name in targets:
+        path = bench_dir / name
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"[exp3] wiped {path}", flush=True)
+    if not logs_only:
+        for path in bench_dir.glob("bench-*.txt"):
+            path.unlink(missing_ok=True)
+        for path in bench_dir.glob("summary*.txt"):
+            path.unlink(missing_ok=True)
+
+
 def collect_summaries(bench_dir: Path, out_dir: Path) -> int:
-    """Copy only summary/bench *.txt (plot inputs) into results/Figure11*/{result_dir}/."""
+    """Copy only this-run summary/bench *.txt into results/Figure11*/{result_dir}/.
+
+    Searches ``results/`` and ``manta_result/`` only — never ``data/`` sample trees
+    that some protocol branches historically checked in.
+    """
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    patterns = (
-        "**/summary*.txt",
-        "**/bench-*.txt",
-        "**/summary.txt",
-        "manta_result/**/summary.txt",
-    )
+
+    roots = [bench_dir / "results", bench_dir / "manta_result"]
+    patterns = ("**/summary*.txt", "**/bench-*.txt", "**/summary.txt")
     seen: set[Path] = set()
     count = 0
-    for pat in patterns:
-        for path in bench_dir.glob(pat):
-            if not path.is_file():
-                continue
-            resolved = path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            # Prefer unique names that preserve parent run-dir context.
-            if path.name == "summary.txt":
-                dest_name = f"{path.parent.name}_summary.txt"
-            else:
-                dest_name = path.name
-            dest = _unique_dest(out_dir, dest_name)
-            shutil.copy2(path, dest)
-            count += 1
-            print(f"[exp3] collected {dest}", flush=True)
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for pat in patterns:
+            for path in root.glob(pat):
+                if not path.is_file():
+                    continue
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                if path.name == "summary.txt":
+                    dest_name = f"{path.parent.name}_summary.txt"
+                else:
+                    dest_name = path.name
+                dest = _unique_dest(out_dir, dest_name)
+                shutil.copy2(path, dest)
+                count += 1
+                print(f"[exp3] collected {dest}", flush=True)
     return count
 
 
@@ -696,6 +720,8 @@ def main() -> int:
                 f"faults={suite['faults']} rates={rates}",
                 flush=True,
             )
+            # Drop prior-run / checked-in dumps before this variant's sweep.
+            wipe_bench_artifacts(bench_dir, logs_only=False)
             for rate in rates:
                 cell_i += 1
                 progress(
@@ -708,6 +734,8 @@ def main() -> int:
                     f"[exp3] run suite={suite_name} variant={variant_name} rate={rate}",
                     flush=True,
                 )
+                # Avoid stale primary/client logs mixing into LogParser (esp. faults>0).
+                wipe_bench_artifacts(bench_dir, logs_only=True)
                 run_cell(
                     bench_dir=bench_dir,
                     settings_path=cell_settings,
