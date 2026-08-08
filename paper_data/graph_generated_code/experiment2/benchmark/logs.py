@@ -23,22 +23,22 @@ def parse_primary_log_markers(log_path):
     with open(log_path, 'r', errors='replace') as f:
         for line in f:
             if markers['boot_ts'] is None:
-                match = search(r'\[(.*Z) .* booted on (\d+.\d+.\d+.\d+)', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* booted on (\d+.\d+.\d+.\d+)', line)
                 if match is not None:
                     markers['boot_ts'] = _to_posix_utc(match.group(1))
 
             if markers['first_created_ts'] is None:
-                match = search(r'\[(.*Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', line)
                 if match is not None:
                     markers['first_created_ts'] = _to_posix_utc(match.group(1))
 
             if markers['attack_start_ts'] is None and 'start attack' in line:
-                match = search(r'\[(.*Z) ', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) ', line)
                 if match is not None:
                     markers['attack_start_ts'] = _to_posix_utc(match.group(1))
 
             if markers['attack_end_ts'] is None and 'end attack' in line:
-                match = search(r'\[(.*Z) ', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) ', line)
                 if match is not None:
                     markers['attack_end_ts'] = _to_posix_utc(match.group(1))
 
