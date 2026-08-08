@@ -631,12 +631,14 @@ class CloudLabBench:
         delete_logs_cmd = CommandMaker.clean_logs() if delete_logs else 'true'
         # Kill benchmark processes by pattern matching
         # This will kill all processes matching the benchmark patterns
+        # Broad patterns: match release binary and client even if argv layout differs.
         kill_cmd = '''
-            # Kill any running benchmark processes
+            pkill -9 -f "target/release/node" 2>/dev/null || true
+            pkill -9 -f "[./]*node .*-vv run" 2>/dev/null || true
+            pkill -9 -f "[./]*node .* run --keys" 2>/dev/null || true
             pkill -9 -f "node.*primary" 2>/dev/null || true
             pkill -9 -f "node.*worker" 2>/dev/null || true
             pkill -9 -f "benchmark_client" 2>/dev/null || true
-            # Also kill any wrapper scripts that might still be running
             pkill -9 -f "/tmp/run_(primary|worker|client)-" 2>/dev/null || true
             true
         '''
@@ -667,7 +669,12 @@ class CloudLabBench:
                     conn_kwargs = self._get_connection_kwargs({})
                     g = Group(*hostnames, user=username, port=port, connect_kwargs=conn_kwargs)
                     # Use warn=True since pkill may not find processes
-                    g.run(' && '.join(cmd), hide=True, warn=True)
+                    g.run(
+                        f"{delete_logs_cmd}\n{kill_cmd}\n{cleanup_db_cmd}",
+                        hide=True,
+                        warn=True,
+                        shell='/bin/bash',
+                    )
                     
                     # Kill processes using committee ports on these hosts
                     if ports_by_host:
@@ -701,7 +708,12 @@ class CloudLabBench:
                     conn_kwargs = self._get_connection_kwargs({})
                     g = Group(*hostnames, user=username, port=port, connect_kwargs=conn_kwargs)
                     # Use warn=True since pkill may not find processes
-                    g.run(' && '.join(cmd), hide=True, warn=True)
+                    g.run(
+                        f"{delete_logs_cmd}\n{kill_cmd}\n{cleanup_db_cmd}",
+                        hide=True,
+                        warn=True,
+                        shell='/bin/bash',
+                    )
                     
                     # Kill processes using committee ports on these hosts
                     if ports_by_host:
@@ -715,6 +727,116 @@ class CloudLabBench:
             # Don't fail if kill commands have errors - processes might not exist
             Print.warn(f'Some kill commands failed (this is OK if processes don\'t exist): {e}')
             raise BenchError('Failed to kill nodes', FabricError(e))
+
+
+    def kill_and_ensure_clean(
+        self,
+        hosts=[],
+        delete_logs=False,
+        committee=None,
+        faults=0,
+        *,
+        retries: int = 8,
+        settle_secs: float = 1.0,
+    ):
+        """Kill benchmark processes and wait until none remain on selected hosts.
+
+        Call this *before* ``_update`` / ``_config`` / boot so the next cell never
+        starts while a previous primary/worker/client is still alive.
+        """
+        import time
+
+        assert isinstance(hosts, list)
+        host_info = self.manager.get_host_info()
+        if hosts:
+            selected = []
+            for h in hosts:
+                if isinstance(h, dict):
+                    selected.append(h)
+                else:
+                    username, hostname = h.split("@", 1)
+                    selected.append({"hostname": hostname, "username": username, "port": 22})
+        else:
+            selected = list(host_info)
+
+        # Match the same process families we kill. Keep the check itself out of matches.
+        check_cmd = (
+            "pgrep -af 'target/release/node|benchmark_client|/tmp/run_(primary|worker|client)-' "
+            "2>/dev/null || true"
+        )
+
+        last_leftover = {}
+        for attempt in range(1, retries + 1):
+            self.kill(
+                hosts=hosts,
+                delete_logs=delete_logs and attempt == 1,
+                committee=committee,
+                faults=faults,
+            )
+            time.sleep(settle_secs)
+
+            leftover = {}
+            hosts_by_config = {}
+            for host in selected:
+                username = host.get("username", "root")
+                hostname = host["hostname"]
+                port = host.get("port", 22)
+                hosts_by_config.setdefault((username, port), []).append(hostname)
+
+            for (username, port), hostnames in hosts_by_config.items():
+                conn_kwargs = self._get_connection_kwargs({})
+                g = Group(
+                    *hostnames,
+                    user=username,
+                    port=port,
+                    connect_kwargs=conn_kwargs,
+                    connect_timeout=30,
+                )
+                try:
+                    results = g.run(check_cmd, hide=True, warn=True)
+                except GroupException as e:
+                    Print.warn(f"process-check GroupException (attempt {attempt}): {e}")
+                    continue
+                try:
+                    items = list(results.items())
+                except Exception:
+                    Print.warn(f"unexpected process-check result type: {type(results)}")
+                    continue
+                for key, res in items:
+                    hostname = (
+                        getattr(key, "host", None)
+                        or getattr(key, "original_host", None)
+                        or str(key)
+                    )
+                    out = (getattr(res, "stdout", "") or "").strip()
+                    lines = [
+                        ln
+                        for ln in out.splitlines()
+                        if ln.strip()
+                        and "pgrep -af" not in ln
+                        and "bash -c" not in ln
+                    ]
+                    if lines:
+                        leftover[str(hostname)] = lines
+
+            if not leftover:
+                Print.info(
+                    f"All residual benchmark processes cleared "
+                    f"(attempt {attempt}/{retries})."
+                )
+                return
+            last_leftover = leftover
+            sample = {h: v[:2] for h, v in list(leftover.items())[:3]}
+            Print.warn(
+                f"Residual processes remain after kill attempt {attempt}/{retries}: {sample}"
+            )
+
+        detail = {h: v[:5] for h, v in last_leftover.items()}
+        raise BenchError(
+            f"Failed to clear residual benchmark processes after {retries} attempts: {detail}",
+            RuntimeError("residual processes still running"),
+        )
+
     
     def _select_hosts(self, bench_parameters):
         """Select hosts based on benchmark parameters"""
@@ -1475,7 +1597,9 @@ SCRIPTEOF'''
 
         # 1. Kill any potentially unfinished run and delete logs (same intent as Bench._run_single)
         Print.info('Killing any existing processes and ports...')
-        self.kill(hosts=selected_hosts, delete_logs=True, committee=committee, faults=faults)
+        self.kill_and_ensure_clean(
+            hosts=selected_hosts, delete_logs=True, committee=committee, faults=faults
+        )
 
         # Small delay to ensure processes are killed and database cleanup completes
         sleep(3)
@@ -1642,6 +1766,10 @@ SCRIPTEOF'''
         for n in bench_parameters.nodes:
             for rate in bench_parameters.rate:
                 for trigger_attack in trigger_attack_list:
+                    # Always clear leftovers from the previous cell before update/config.
+                    Print.info('Ensuring all residual benchmark processes are stopped...')
+                    self.kill_and_ensure_clean(hosts=selected_hosts, delete_logs=False)
+
                     # Update nodes (this will also modify attack.rs if trigger_attack is specified)
                     try:
                         if trigger_attack is not None:
