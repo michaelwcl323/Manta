@@ -84,6 +84,20 @@ def ensure_ssh_agent(key: Path, password: str | None) -> None:
     _ensure(key, password)
 
 
+def clear_local_results(local_results: Path, *, tag: str = "exp4-local") -> None:
+    """Drop prior local campaign outputs so plots never mix old files."""
+    local_results.mkdir(parents=True, exist_ok=True)
+    for child in list(local_results.iterdir()):
+        if child.name == ".gitkeep":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink(missing_ok=True)
+        print(f"[{tag}] cleared prior {child}", flush=True)
+    (local_results / ".gitkeep").touch(exist_ok=True)
+
+
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     print("[exp4-local]", " ".join(cmd), flush=True)
     return subprocess.run(cmd, check=check)
@@ -212,7 +226,7 @@ def sync_results(
     connect_timeout: int,
     only_suite: str | None,
 ) -> None:
-    local_results.mkdir(parents=True, exist_ok=True)
+    clear_local_results(local_results)
     variants: list[str] = []
     if only_suite in (None, "figure12_complete"):
         variants.append("complete")
@@ -221,8 +235,6 @@ def sync_results(
 
     for variant in variants:
         dest = local_results / "Figure12" / variant
-        if dest.exists():
-            shutil.rmtree(dest)
         dest.mkdir(parents=True, exist_ok=True)
         remote = f"{remote_workdir}/results/Figure12/{variant}"
         n = _scp_glob_dir(

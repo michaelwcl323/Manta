@@ -89,6 +89,20 @@ def ensure_ssh_agent(key: Path, password: str | None) -> None:
     _ensure(key, password)
 
 
+def clear_local_results(local_results: Path, *, tag: str = "exp3-local") -> None:
+    """Drop prior local campaign outputs so plots never mix old files."""
+    local_results.mkdir(parents=True, exist_ok=True)
+    for child in list(local_results.iterdir()):
+        if child.name == ".gitkeep":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink(missing_ok=True)
+        print(f"[{tag}] cleared prior {child}", flush=True)
+    (local_results / ".gitkeep").touch(exist_ok=True)
+
+
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     print("[exp3-local]", " ".join(cmd), flush=True)
     return subprocess.run(cmd, check=check)
@@ -378,14 +392,7 @@ def main() -> int:
     # Sync summary *.txt only under Figure11a / Figure11c (plot inputs).
     next_phase("sync plot/table inputs")
     local_results = EXP_DIR / "results"
-    # Replace prior local campaign outputs so plots never average old txts.
-    if local_results.exists():
-        for figure in ("Figure11a", "Figure11c"):
-            dest = local_results / figure
-            if dest.exists():
-                shutil.rmtree(dest)
-                print(f"[exp3-local] cleared prior {dest}", flush=True)
-    local_results.mkdir(parents=True, exist_ok=True)
+    clear_local_results(local_results)
     tmp_fetch = EXP_DIR / "logs" / f"_fetch_results_{os.getpid()}"
     if tmp_fetch.exists():
         shutil.rmtree(tmp_fetch)
