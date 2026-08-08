@@ -386,6 +386,35 @@ except BenchError as exc:
     return bench_dir
 
 
+def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False, tag: str = "exp") -> None:
+    """Remove leftover bench outputs so collect/plot never mix prior runs."""
+    targets = ["logs"] if logs_only else [
+        "logs",
+        "results",
+        "manta_result",
+        "data/latest",
+        "data/paper-data",
+        "tusk_coupled",
+        "decouple",
+        "exp1results",
+        "result_decouple",
+        "manta_compare",
+        "manta_final_geo",
+    ]
+    for name in targets:
+        path = bench_dir / name
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"[{tag}] wiped {path}", flush=True)
+    if not logs_only:
+        for path in bench_dir.glob("bench-*.txt"):
+            path.unlink(missing_ok=True)
+        for path in bench_dir.glob("summary*.txt"):
+            path.unlink(missing_ok=True)
+        for path in bench_dir.glob("round_*.csv"):
+            path.unlink(missing_ok=True)
+
+
 def collect_summaries(bench_dir: Path, variant: str, figure: str, out_dir: Path) -> int:
     """Copy only summary *.txt into results/Figure9{{a,b}} (no csv/png/pdf dumps)."""
     roots = {
@@ -393,6 +422,8 @@ def collect_summaries(bench_dir: Path, variant: str, figure: str, out_dir: Path)
         "coupled": bench_dir / "tusk_coupled",
     }
     root = roots[variant]
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     if not root.exists():
@@ -503,6 +534,9 @@ def main() -> int:
         networks = networks_all
         workloads = workloads_all
 
+        # Drop prior-run / checked-in dumps before this variant's cells.
+        wipe_bench_artifacts(bench_dir, logs_only=False, tag="exp1")
+
         for network in networks:
             wan_path = args.workdir / network["wan_profile"]
             wan_profile = json.loads(wan_path.read_text(encoding="utf-8"))
@@ -552,6 +586,7 @@ def main() -> int:
                     f"workload={workload['tag']} rate={variant_cfg['rate']}",
                     flush=True,
                 )
+                wipe_bench_artifacts(bench_dir, logs_only=True, tag="exp1")
                 run_cell(
                     bench_dir=bench_dir,
                     settings_path=cell_settings,

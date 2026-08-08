@@ -19,6 +19,11 @@ git fetch --tags origin "$BRANCH" || true
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH" || true
 
+# Drop leftover / previously checked-in bench outputs so AE collect never mixes runs.
+rm -rf benchmark/logs benchmark/results benchmark/manta_result \
+  benchmark/data/latest benchmark/data/paper-data
+rm -f benchmark/bench-*.txt benchmark/summary*.txt 2>/dev/null || true
+
 if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
   source "$HOME/.cargo/env"

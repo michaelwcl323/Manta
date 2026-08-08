@@ -535,7 +535,20 @@ def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
     ``logs_only`` clears parse inputs between cells of the same variant (keeps
     ``results/`` / ``manta_result/`` so earlier rates in the sweep remain).
     """
-    targets = ["logs"] if logs_only else ["logs", "results", "manta_result"]
+    targets = ["logs"] if logs_only else [
+        "logs",
+        "results",
+        "manta_result",
+        "data/latest",
+        "data/paper-data",
+        # Exp1-style / shared leftover result roots if present on a protocol tree.
+        "tusk_coupled",
+        "decouple",
+        "exp1results",
+        "result_decouple",
+        "manta_compare",
+        "manta_final_geo",
+    ]
     for name in targets:
         path = bench_dir / name
         if path.exists():
@@ -545,6 +558,8 @@ def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False) -> None:
         for path in bench_dir.glob("bench-*.txt"):
             path.unlink(missing_ok=True)
         for path in bench_dir.glob("summary*.txt"):
+            path.unlink(missing_ok=True)
+        for path in bench_dir.glob("round_*.csv"):
             path.unlink(missing_ok=True)
 
 

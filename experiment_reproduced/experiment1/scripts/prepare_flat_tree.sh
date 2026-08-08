@@ -35,6 +35,14 @@ git remote remove origin 2>/dev/null || true
 git remote add origin "$BARE"
 git push -u origin "$BRANCH" >/dev/null
 
+# Drop leftover / previously checked-in bench outputs so AE collect never mixes runs.
+rm -rf benchmark/logs benchmark/results benchmark/manta_result \
+  benchmark/data/latest benchmark/data/paper-data \
+  benchmark/tusk_coupled benchmark/decouple \
+  benchmark/exp1results benchmark/result_decouple \
+  benchmark/manta_compare benchmark/manta_final_geo
+rm -f benchmark/bench-*.txt benchmark/summary*.txt benchmark/round_*.csv 2>/dev/null || true
+
 # Python deps for CloudLabBench (used on controller, but keep remotes consistent).
 if [ -f benchmark/requirements.txt ]; then
   python3 -m venv benchmark/.venv

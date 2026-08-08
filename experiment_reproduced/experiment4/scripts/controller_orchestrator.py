@@ -545,6 +545,27 @@ def mean(vals: list[float]) -> float:
     return sum(vals) / len(vals) if vals else float("nan")
 
 
+def wipe_bench_artifacts(bench_dir: Path, *, logs_only: bool = False, tag: str = "exp4") -> None:
+    """Remove leftover bench outputs so collect/plot never mix prior runs."""
+    targets = ["logs"] if logs_only else [
+        "logs",
+        "results",
+        "manta_result",
+        "data/latest",
+        "data/paper-data",
+    ]
+    for name in targets:
+        path = bench_dir / name
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"[{tag}] wiped {path}", flush=True)
+    if not logs_only:
+        for path in bench_dir.glob("bench-*.txt"):
+            path.unlink(missing_ok=True)
+        for path in bench_dir.glob("summary*.txt"):
+            path.unlink(missing_ok=True)
+
+
 def collect_figure12_suite(bench_dir: Path, suite: dict, out_dir: Path) -> tuple[int, list[dict]]:
     """Copy summary + resource summaries; return (n_summaries, resource rows)."""
     design = suite["design_tag"]
@@ -787,6 +808,7 @@ def main() -> int:
     for suite_name, suite in suites.items():
         cells = suite_cells[suite_name]
         print(f"[exp4] suite={suite_name} cells={len(cells)}", flush=True)
+        wipe_bench_artifacts(bench_dir, logs_only=False, tag="exp4")
         for cell in cells:
             cell_i += 1
             progress(
@@ -800,6 +822,7 @@ def main() -> int:
                 f"rate={cell['rate']} runs={cell['runs']}",
                 flush=True,
             )
+            wipe_bench_artifacts(bench_dir, logs_only=True, tag="exp4")
             run_cell(
                 bench_dir=bench_dir,
                 settings_path=wan_settings,
