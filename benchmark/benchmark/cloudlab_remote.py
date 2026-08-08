@@ -1472,6 +1472,11 @@ SCRIPTEOF'''
             if isinstance(e, BenchError):
                 raise
             raise BenchError(f'Failed to start {name} on {hostname}', e)
+        finally:
+            try:
+                c.close()
+            except Exception:
+                pass
     
     def _get_host_by_address(self, address, selected_hosts):
         """Get host info by extracting IP from address"""
