@@ -34,22 +34,22 @@ def parse_primary_log_markers(log_path):
     with open(log_path, 'r', errors='replace') as f:
         for line in f:
             if markers['boot_ts'] is None:
-                match = search(r'\[(.*Z) .* booted on (\d+.\d+.\d+.\d+)', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* booted on (\d+.\d+.\d+.\d+)', line)
                 if match is not None:
                     markers['boot_ts'] = _to_posix_utc(match.group(1))
 
             if markers['first_created_ts'] is None:
-                match = search(r'\[(.*Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', line)
                 if match is not None:
                     markers['first_created_ts'] = _to_posix_utc(match.group(1))
 
             if markers['attack_start_ts'] is None and 'start attack' in line:
-                match = search(r'\[(.*Z) ', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) ', line)
                 if match is not None:
                     markers['attack_start_ts'] = _to_posix_utc(match.group(1))
 
             if markers['attack_end_ts'] is None and 'end attack' in line:
-                match = search(r'\[(.*Z) ', line)
+                match = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) ', line)
                 if match is not None:
                     markers['attack_end_ts'] = _to_posix_utc(match.group(1))
 
@@ -151,12 +151,12 @@ class LogParser:
         size = int(search(r'Transactions size: (\d+)', log).group(1))
         rate = int(search(r'Transactions rate: (\d+)', log).group(1))
 
-        tmp = search(r'\[(.*Z) .* Start ', log).group(1)
+        tmp = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* Start ', log).group(1)
         start = self._to_posix(tmp)
 
         misses = len(findall(r'rate too high', log))
 
-        tmp = findall(r'\[(.*Z) .* sample transaction (\d+)', log)
+        tmp = findall(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* sample transaction (\d+)', log)
         samples = {int(s): self._to_posix(t) for t, s in tmp}
 
         return size, rate, start, misses, samples
@@ -165,11 +165,11 @@ class LogParser:
         if search(r'(?:panicked|Error)', log) is not None:
             raise ParseError('Primary(s) panicked')
 
-        tmp = findall(r'\[(.*Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = findall(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         proposals = self._merge_results([tmp])
 
-        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = findall(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
@@ -197,7 +197,7 @@ class LogParser:
             ),
         }
 
-        boot_line = search(r'\[(.*Z) .* booted on (\d+.\d+.\d+.\d+)', log)
+        boot_line = search(r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) .* booted on (\d+.\d+.\d+.\d+)', log)
         if boot_line is not None:
             boot_ts = self._to_posix(boot_line.group(1))
             ip = boot_line.group(2)
