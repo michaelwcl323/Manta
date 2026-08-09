@@ -1,0 +1,70 @@
+Valence Summary
+================
+Primary logs scanned: 50
+Rounds counted: 57
+
+One-valent vertices: 2088
+Zero-valent vertices: 170
+Bivalent vertices: 9
+
+Fast-path committed vertices: 1992
+Slow-path committed vertices: 38
+
+Per-round classification:
+  round 1: one=50, zero=0, bivalent=0 (source=primary-0.log:819)
+  round 2: one=0, zero=42, bivalent=0 (source=primary-0.log:897)
+  round 3: one=42, zero=1, bivalent=0 (source=primary-0.log:922)
+  round 4: one=42, zero=1, bivalent=0 (source=primary-0.log:980)
+  round 5: one=43, zero=1, bivalent=0 (source=primary-0.log:1045)
+  round 6: one=42, zero=2, bivalent=0 (source=primary-0.log:1109)
+  round 7: one=43, zero=1, bivalent=0 (source=primary-0.log:1171)
+  round 8: one=39, zero=5, bivalent=0 (source=primary-0.log:1239)
+  round 9: one=44, zero=2, bivalent=0 (source=primary-0.log:1295)
+  round 10: one=41, zero=4, bivalent=0 (source=primary-0.log:1369)
+  round 11: one=41, zero=4, bivalent=0 (source=primary-0.log:1421)
+  round 12: one=40, zero=5, bivalent=0 (source=primary-0.log:1474)
+  round 13: one=39, zero=5, bivalent=0 (source=primary-37.log:1012)
+  round 14: one=40, zero=5, bivalent=0 (source=primary-0.log:1589)
+  round 15: one=40, zero=6, bivalent=0 (source=primary-48.log:8537)
+  round 16: one=36, zero=1, bivalent=0 (source=primary-47.log:2150)
+  round 17: one=36, zero=1, bivalent=0 (source=primary-41.log:2113)
+  round 18: one=36, zero=2, bivalent=0 (source=primary-41.log:2169)
+  round 19: one=36, zero=1, bivalent=0 (source=primary-41.log:2263)
+  round 20: one=36, zero=0, bivalent=0 (source=primary-48.log:6805)
+  round 21: one=36, zero=0, bivalent=0 (source=primary-48.log:7336)
+  round 22: one=36, zero=0, bivalent=0 (source=primary-48.log:7480)
+  round 23: one=36, zero=0, bivalent=0 (source=primary-48.log:7742)
+  round 24: one=36, zero=0, bivalent=0 (source=primary-48.log:7995)
+  round 25: one=36, zero=0, bivalent=0 (source=primary-48.log:8055)
+  round 26: one=36, zero=0, bivalent=0 (source=primary-48.log:8452)
+  round 27: one=36, zero=0, bivalent=0 (source=primary-48.log:8924)
+  round 28: one=36, zero=0, bivalent=0 (source=primary-48.log:9103)
+  round 29: one=36, zero=0, bivalent=0 (source=primary-48.log:9168)
+  round 30: one=36, zero=0, bivalent=0 (source=primary-48.log:9231)
+  round 31: one=36, zero=0, bivalent=0 (source=primary-48.log:9828)
+  round 32: one=36, zero=0, bivalent=0 (source=primary-48.log:9926)
+  round 33: one=36, zero=0, bivalent=0 (source=primary-48.log:9966)
+  round 34: one=36, zero=2, bivalent=0 (source=primary-0.log:2462)
+  round 35: one=36, zero=4, bivalent=0 (source=primary-0.log:2507)
+  round 36: one=38, zero=1, bivalent=0 (source=primary-0.log:2568)
+  round 37: one=37, zero=3, bivalent=0 (source=primary-0.log:2612)
+  round 38: one=35, zero=3, bivalent=0 (source=primary-37.log:5609)
+  round 39: one=36, zero=1, bivalent=0 (source=primary-40.log:2602)
+  round 40: one=35, zero=1, bivalent=0 (source=primary-47.log:4084)
+  round 41: one=35, zero=1, bivalent=0 (source=primary-0.log:2789)
+  round 42: one=35, zero=1, bivalent=0 (source=primary-40.log:2930)
+  round 43: one=35, zero=1, bivalent=0 (source=primary-0.log:2870)
+  round 44: one=35, zero=3, bivalent=0 (source=primary-38.log:2930)
+  round 45: one=36, zero=5, bivalent=0 (source=primary-19.log:3287)
+  round 46: one=36, zero=5, bivalent=0 (source=primary-40.log:6242)
+  round 47: one=34, zero=5, bivalent=0 (source=primary-24.log:10437)
+  round 48: one=37, zero=5, bivalent=0 (source=primary-20.log:15639)
+  round 49: one=35, zero=5, bivalent=0 (source=primary-37.log:22921)
+  round 50: one=36, zero=1, bivalent=2 (source=primary-20.log:35448)
+  round 51: one=34, zero=3, bivalent=0 (source=primary-37.log:28757)
+  round 52: one=34, zero=5, bivalent=0 (source=primary-19.log:27257)
+  round 53: one=35, zero=10, bivalent=0 (source=primary-21.log:37699)
+  round 54: one=35, zero=7, bivalent=0 (source=primary-21.log:40775)
+  round 55: one=34, zero=4, bivalent=0 (source=primary-37.log:47633)
+  round 56: one=37, zero=5, bivalent=5 (source=primary-37.log:52135)
+  round 57: one=38, zero=0, bivalent=2 (source=primary-37.log:52133)

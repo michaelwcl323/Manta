@@ -1,0 +1,41 @@
+network_tag: chitu-ack
+rtt_tag: no-delay
+run_index: 1/1
+nodes: 50
+rate: 60000
+workers: 1
+faults: 0
+collocate: True
+tx_size: 512
+trigger_attack: N/A
+
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Faults: 0 node(s)
+ Committee size: 50 node(s)
+ Worker(s) per node: 1 worker(s)
+ Collocate primary and workers: True
+ Input rate: 60,000 tx/s
+ Transaction size: 512 B
+ Execution time: 119 s
+
+ Header size: 1,000 B
+ Max header delay: 50 ms
+ GC depth: 500 round(s)
+ Sync retry delay: 1,000 ms
+ Sync retry nodes: 7 node(s)
+ batch size: 500,000 B
+ Max batch delay: 50 ms
+
+ + RESULTS:
+ Consensus TPS: 37,588 tx/s
+ Consensus BPS: 19,245,036 B/s
+ Consensus latency: 13,484 ms
+
+ End-to-end TPS: 35,154 tx/s
+ End-to-end BPS: 17,998,683 B/s
+ End-to-end latency: 20,995 ms
+-----------------------------------------
