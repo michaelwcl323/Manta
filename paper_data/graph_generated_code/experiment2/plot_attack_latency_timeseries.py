@@ -51,7 +51,18 @@ AX_RIGHT_IN = 0.23
 DEFAULT_Y_MAX_MEAN_S = 1.0
 
 
-def load_run_metadata(run_dir: Path) -> dict:
+def run_directory(run_path: Path) -> Path:
+    """Return the run directory for either a run directory or latency CSV."""
+    return run_path.parent if run_path.suffix.lower() == ".csv" else run_path
+
+
+def latency_csv_path(run_path: Path) -> Path:
+    """Resolve a direct CSV input or ``<run directory>/latency.csv``."""
+    return run_path if run_path.suffix.lower() == ".csv" else run_path / "latency.csv"
+
+
+def load_run_metadata(run_path: Path) -> dict:
+    run_dir = run_directory(run_path)
     metadata_file = run_dir / "run_metadata.json"
     if not metadata_file.exists():
         return {}
@@ -78,8 +89,9 @@ def resolve_config_label(run_dir: Path, node_params: dict) -> str:
     return config_label(node_params)
 
 
-def load_primary0_log_markers(run_dir: Path) -> dict:
-    metadata = load_run_metadata(run_dir)
+def load_primary0_log_markers(run_path: Path) -> dict:
+    run_dir = run_directory(run_path)
+    metadata = load_run_metadata(run_path)
     artifacts = metadata.get("artifacts", {})
     candidates = []
     primary0_from_metadata = artifacts.get("primary0_log")
@@ -171,10 +183,10 @@ def get_attack_window(
 
 
 def load_consensus_latency_rows(
-    run_dir: Path,
+    run_path: Path,
     time_axis: str,
 ) -> tuple[list[dict[str, float]], float | None]:
-    latency_file = run_dir / "latency.csv"
+    latency_file = latency_csv_path(run_path)
     if not latency_file.exists():
         return [], None
 
@@ -205,7 +217,7 @@ def load_consensus_latency_rows(
 
     event_key = "proposal_ts" if time_axis == TIME_AXIS_PROPOSAL else "commit_ts"
     fallback = min(row["proposal_ts"] for row in raw_rows)
-    primary_start = resolve_primary_start_ts(run_dir, fallback)
+    primary_start = resolve_primary_start_ts(run_directory(run_path), fallback)
     return [
         {
             "aligned_time_s": row[event_key] - primary_start,
@@ -832,8 +844,6 @@ def draw(
             ax.set_ylim(y_lim[0], y_lim[1])
         else:
             ax.margins(y=0.08)
-        else:
-            ax.margins(y=0.08)
         if not y_log_scale:
             apply_linear_latency_axis(ax)
             ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
@@ -1059,7 +1069,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Overlay each run as one curve on a single figure (shared x/y axes). "
-            "Requires at least 2 directories with latency.csv. "
+            "Requires at least 2 run directories containing latency.csv or direct CSV paths. "
             "Default output: attack_latency_timeseries_overlay.png beside the first run."
         ),
     )
@@ -1070,7 +1080,7 @@ def parse_args() -> argparse.Namespace:
         metavar=("RUN_A", "RUN_B", "RUN_C", "RUN_D"),
         default=None,
         help=(
-            "Same as --merge-runs with exactly four paths (legacy). "
+            "Same as --merge-runs with exactly four run directories or CSV paths (legacy). "
             "Default output: attack_latency_timeseries_4overlay.png."
         ),
     )
@@ -1238,10 +1248,11 @@ def main() -> None:
     if overlay_paths:
         run_dirs = [p.resolve() for p in overlay_paths]
         if len(run_dirs) < 2:
-            raise SystemExit("--merge-runs needs at least two run directories.")
+            raise SystemExit("--merge-runs needs at least two run directories or CSV files.")
         for rd in run_dirs:
-            if not (rd / "latency.csv").exists():
-                raise SystemExit(f"Missing latency.csv: {rd}")
+            latency_file = latency_csv_path(rd)
+            if not latency_file.is_file():
+                raise SystemExit(f"Missing latency CSV: {latency_file}")
         default_overlay_name = (
             "attack_latency_timeseries_4overlay.png"
             if args.merge_four_runs
