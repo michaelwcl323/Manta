@@ -525,7 +525,7 @@ PDF under `results/regenerate_graphs/` matching paper Figure 11(a)
 Figure 11(b) is reproduced using the 50-replica AWS deployment on branch
 `experiment3`.
 
-See the separate [AWS large-scale experiment README](aws/README.md) for the
+See the separate [AWS deployment instructions](https://github.com/michaelwcl323/manta-nsdi27/blob/experiment3/README.md) for the
 environment setup, execution commands, runtime, output, and expected result.
 
 #### Figure 11(c): Performance under Silent Faults
