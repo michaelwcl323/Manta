@@ -8,8 +8,8 @@ Scenario switching:
   * network  -> cloudlab_wan clear + setup (re-applied whenever delay profile changes)
   * workload -> CloudLabBench bench_params only
 
-Prepare runs in parallel across all replicas and must finish before any WAN/delay
-setup or benchmark cells.
+At every protocol boundary, all replica processes are cleared and verified before
+that protocol is cloned and built from a fresh checkout.
 """
 
 from __future__ import annotations
@@ -116,6 +116,69 @@ def scp_to_host(
     run(_scp_base(identity) + [str(local), f"{username}@{host}:{remote}"])
 
 
+def reset_remote_benchmark_processes(
+    *,
+    hosts: list[dict],
+    username: str,
+    remote_key: str,
+    tag: str,
+) -> None:
+    """Kill detached benchmark processes on every replica and verify zero remain.
+
+    This controller-level reset does not depend on whichever protocol checkout is
+    currently installed, so it is safe to run before a fresh clone or a protocol
+    switch.
+    """
+    remote_cmd = r"""
+set -euo pipefail
+pattern='[t]arget/(debug|release)/node|[b]enchmark_client|[./][n]ode .* run --keys|[/]tmp/run_(primary|worker|client)-|[r]esource-cpu[.]raw|[r]esource-net[.]raw'
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -TERM $pids 2>/dev/null || true
+  sleep 1
+fi
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -KILL $pids 2>/dev/null || true
+  sleep 1
+fi
+left="$(pgrep -af "$pattern" || true)"
+if [ -n "$left" ]; then
+  printf 'PROCESSES_LEFT=1\n%s\n' "$left" >&2
+  exit 42
+fi
+rm -f /tmp/run_[p]rimary-*.sh /tmp/run_[w]orker-*.sh /tmp/run_[c]lient-*.sh
+printf 'PROCESSES_LEFT=0\n'
+"""
+    failures: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:
+        futures = {}
+        for entry in hosts:
+            host = entry["hostname"]
+            user = entry.get("username") or username
+            future = pool.submit(
+                ssh_host,
+                user,
+                host,
+                remote_cmd,
+                identity=remote_key,
+                connect_timeout=30,
+            )
+            futures[future] = host
+        for future in as_completed(futures):
+            host = futures[future]
+            try:
+                future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append((host, str(exc)))
+    if failures:
+        detail = "; ".join(f"{host}: {error}" for host, error in failures)
+        raise SystemExit(
+            f"[{tag}] global process reset failed on {len(failures)} host(s): {detail}"
+        )
+    print(f"[{tag}] global process reset verified on {len(hosts)} hosts", flush=True)
+
+
 def merge_wan_settings(base_hosts: list[dict], wan_profile: dict, remote_key: str, port: int, flat_repo: str, branch: str, repo_url: str) -> dict:
     """Merge paper WAN profile onto replica hosts only.
 
@@ -161,11 +224,29 @@ def merge_wan_settings(base_hosts: list[dict], wan_profile: dict, remote_key: st
 
 
 def ensure_monorepo(repo_dir: Path, repo_url: str, branch: str) -> None:
-    if not (repo_dir / ".git").exists():
-        run(["git", "clone", repo_url, str(repo_dir)])
-    run(["git", "fetch", "--tags", "origin", branch], cwd=repo_dir, check=False)
-    run(["git", "checkout", branch], cwd=repo_dir)
-    run(["git", "pull", "--ff-only", "origin", branch], cwd=repo_dir, check=False)
+    """Create a fresh controller checkout and verify its branch tip."""
+    repo_dir = repo_dir.expanduser().resolve()
+    if repo_dir in (Path("/"), Path.home().resolve()):
+        raise SystemExit(f"refusing to replace unsafe repository path: {repo_dir}")
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir)
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "git", "clone", "--branch", branch, "--single-branch", repo_url, str(repo_dir)
+    ])
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    origin_head = subprocess.run(
+        ["git", "rev-parse", f"origin/{branch}"], cwd=repo_dir, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if head != origin_head:
+        raise SystemExit(
+            f"fresh checkout verification failed for {repo_dir}: {head} != {origin_head}"
+        )
+    print(f"fresh checkout verified: {repo_dir}@{head}", flush=True)
 
 
 def _prepare_one_host(
@@ -188,9 +269,12 @@ def _prepare_one_host(
         f"set -euo pipefail; "
         f"export PATH=\"$HOME/.cargo/bin:$PATH\"; "
         f"repo=\"$HOME/{monorepo_name}\"; "
-        f"if [ ! -d \"$repo/.git\" ]; then git clone {repo_url} \"$repo\"; fi; "
-        f"cd \"$repo\"; git fetch --tags origin {branch} || true; "
-        f"git checkout {branch}; git pull --ff-only origin {branch} || true",
+        f"rm -rf \"$repo\"; "
+        f"git clone --branch {shlex.quote(branch)} --single-branch "
+        f"{shlex.quote(repo_url)} \"$repo\"; "
+        f"cd \"$repo\"; "
+        f"test \"$(git rev-parse HEAD)\" = "
+        f"\"$(git rev-parse {shlex.quote(f'origin/{branch}')})\"",
         identity=identity,
         connect_timeout=30,
     )
@@ -549,25 +633,14 @@ def main() -> int:
     port = int(settings.get("port", 5000))
     password = settings.get("ssh_key_password") or (settings.get("key") or {}).get("password")
 
-    ensure_monorepo(args.monorepo, repo_url, branch)
+    reset_remote_benchmark_processes(
+        hosts=hosts, username=username, remote_key=args.remote_key, tag="exp1"
+    )
 
     prepare_script = args.workdir / "scripts" / "prepare_flat_tree.sh"
     variants = matrix["variants"]
     if args.only_variant:
         variants = {args.only_variant: variants[args.only_variant]}
-
-    # Phase 1: parallel deploy on all replicas (no delay / no bench yet).
-    prepare_variants(
-        hosts=hosts,
-        username=username,
-        remote_key=args.remote_key,
-        repo_url=repo_url,
-        branch=branch,
-        monorepo_name=monorepo_name,
-        variants=variants,
-        prepare_script=prepare_script,
-        skip_prepare=args.skip_prepare,
-    )
 
     results_root = args.workdir / "results"
     results_root.mkdir(parents=True, exist_ok=True)
@@ -595,6 +668,22 @@ def main() -> int:
     cell_i = 0
 
     for variant_name, variant_cfg in variants.items():
+        reset_remote_benchmark_processes(
+            hosts=hosts, username=username, remote_key=args.remote_key, tag="exp1"
+        )
+        if not args.skip_prepare:
+            ensure_monorepo(args.monorepo, repo_url, branch)
+        prepare_variants(
+            hosts=hosts,
+            username=username,
+            remote_key=args.remote_key,
+            repo_url=repo_url,
+            branch=branch,
+            monorepo_name=monorepo_name,
+            variants={variant_name: variant_cfg},
+            prepare_script=prepare_script,
+            skip_prepare=args.skip_prepare,
+        )
         subdir = variant_cfg["monorepo_subdir"]
         flat_repo = variant_cfg["flat_repo_name"]
         figure = variant_cfg["figure"]
@@ -660,6 +749,12 @@ def main() -> int:
 
             for workload in workloads:
                 cell_i += 1
+                reset_remote_benchmark_processes(
+                    hosts=hosts,
+                    username=username,
+                    remote_key=args.remote_key,
+                    tag="exp1",
+                )
                 progress(
                     "exp1",
                     cell_i,

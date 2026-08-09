@@ -150,6 +150,69 @@ def replica_hosts(base_hosts: list[dict]) -> list[dict]:
     return hosts
 
 
+def reset_remote_benchmark_processes(
+    *,
+    hosts: list[dict],
+    username: str,
+    remote_key: str,
+    tag: str,
+) -> None:
+    """Kill detached benchmark processes on every replica and verify zero remain.
+
+    This controller-level reset does not depend on whichever protocol checkout is
+    currently installed, so it is safe to run before a fresh clone or a protocol
+    switch.
+    """
+    remote_cmd = r"""
+set -euo pipefail
+pattern='[t]arget/(debug|release)/node|[b]enchmark_client|[./][n]ode .* run --keys|[/]tmp/run_(primary|worker|client)-|[r]esource-cpu[.]raw|[r]esource-net[.]raw'
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -TERM $pids 2>/dev/null || true
+  sleep 1
+fi
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -KILL $pids 2>/dev/null || true
+  sleep 1
+fi
+left="$(pgrep -af "$pattern" || true)"
+if [ -n "$left" ]; then
+  printf 'PROCESSES_LEFT=1\n%s\n' "$left" >&2
+  exit 42
+fi
+rm -f /tmp/run_[p]rimary-*.sh /tmp/run_[w]orker-*.sh /tmp/run_[c]lient-*.sh
+printf 'PROCESSES_LEFT=0\n'
+"""
+    failures: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:
+        futures = {}
+        for entry in hosts:
+            host = entry["hostname"]
+            user = entry.get("username") or username
+            future = pool.submit(
+                ssh_host,
+                user,
+                host,
+                remote_cmd,
+                identity=remote_key,
+                connect_timeout=30,
+            )
+            futures[future] = host
+        for future in as_completed(futures):
+            host = futures[future]
+            try:
+                future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append((host, str(exc)))
+    if failures:
+        detail = "; ".join(f"{host}: {error}" for host, error in failures)
+        raise SystemExit(
+            f"[{tag}] global process reset failed on {len(failures)} host(s): {detail}"
+        )
+    print(f"[{tag}] global process reset verified on {len(hosts)} hosts", flush=True)
+
+
 def merge_wan_settings(
     base_hosts: list[dict],
     wan_profile: dict,
@@ -183,11 +246,29 @@ def merge_wan_settings(
 
 
 def ensure_monorepo(repo_dir: Path, repo_url: str, branch: str) -> None:
-    if not (repo_dir / ".git").exists():
-        run(["git", "clone", repo_url, str(repo_dir)])
-    run(["git", "fetch", "--tags", "origin", branch], cwd=repo_dir, check=False)
-    run(["git", "checkout", branch], cwd=repo_dir)
-    run(["git", "pull", "--ff-only", "origin", branch], cwd=repo_dir, check=False)
+    """Create a fresh controller checkout and verify its branch tip."""
+    repo_dir = repo_dir.expanduser().resolve()
+    if repo_dir in (Path("/"), Path.home().resolve()):
+        raise SystemExit(f"refusing to replace unsafe repository path: {repo_dir}")
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir)
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "git", "clone", "--branch", branch, "--single-branch", repo_url, str(repo_dir)
+    ])
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    origin_head = subprocess.run(
+        ["git", "rev-parse", f"origin/{branch}"], cwd=repo_dir, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if head != origin_head:
+        raise SystemExit(
+            f"fresh checkout verification failed for {repo_dir}: {head} != {origin_head}"
+        )
+    print(f"fresh checkout verified: {repo_dir}@{head}", flush=True)
 
 
 def prepare_controller_monorepo(repo_dir: Path) -> None:
@@ -811,8 +892,11 @@ def main() -> int:
     password = settings.get("ssh_key_password") or (settings.get("key") or {}).get("password")
     defaults = matrix.get("defaults") or {}
 
-    ensure_monorepo(args.monorepo, repo_url, branch)
+    reset_remote_benchmark_processes(
+        hosts=hosts, username=username, remote_key=args.remote_key, tag="exp4"
+    )
     if not args.skip_prepare:
+        ensure_monorepo(args.monorepo, repo_url, branch)
         prepare_controller_monorepo(args.monorepo)
 
     prepare_script = args.workdir / "scripts" / "prepare_repo.sh"
@@ -885,6 +969,9 @@ def main() -> int:
 
     all_resource_rows: list[dict] = []
     for suite_name, suite in suites.items():
+        reset_remote_benchmark_processes(
+            hosts=hosts, username=username, remote_key=args.remote_key, tag="exp4"
+        )
         cells = suite_cells[suite_name]
         print(f"[exp4] suite={suite_name} cells={len(cells)}", flush=True)
         wipe_bench_artifacts(bench_dir, logs_only=False, tag="exp4")
@@ -897,6 +984,12 @@ def main() -> int:
         )
         for cell in cells:
             cell_i += 1
+            reset_remote_benchmark_processes(
+                hosts=hosts,
+                username=username,
+                remote_key=args.remote_key,
+                tag="exp4",
+            )
             progress(
                 "exp4",
                 cell_i,

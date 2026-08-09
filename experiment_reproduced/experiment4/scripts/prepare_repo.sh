@@ -10,14 +10,17 @@ REPO_URL="${3:?repo url}"
 export PATH="$HOME/.cargo/bin:$PATH"
 source "$HOME/.cargo/env" 2>/dev/null || true
 
-if [ ! -d "$REPO_DIR/.git" ]; then
-  git clone "$REPO_URL" "$REPO_DIR"
+resolved_repo="$(readlink -f "$REPO_DIR")"
+if [ "$resolved_repo" = "/" ] || [ "$resolved_repo" = "$HOME" ]; then
+  echo "refusing unsafe repo path: $REPO_DIR" >&2
+  exit 1
 fi
+rm -rf "$REPO_DIR"
+mkdir -p "$(dirname "$REPO_DIR")"
+git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$REPO_DIR"
 
 cd "$REPO_DIR"
-git fetch --tags origin "$BRANCH" || true
-git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH" || true
+test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")"
 
 # Drop leftover / previously checked-in bench outputs so AE collect never mixes runs.
 rm -rf benchmark/logs benchmark/results benchmark/manta_result \
@@ -29,12 +32,8 @@ if ! command -v cargo >/dev/null 2>&1; then
   source "$HOME/.cargo/env"
 fi
 
-# Build once; reuse existing release binaries on later prepares.
-if [ -x ./target/release/node ] && [ -x ./target/release/benchmark_client ]; then
-  echo "[prepare] release binaries already present; skip cargo build"
-else
-  cargo build --release --features benchmark
-fi
+# Build every binary from the verified fresh checkout.
+cargo build --release --features benchmark
 test -x ./target/release/node
 test -x ./target/release/benchmark_client
 # `node/` is the crate source dir — never replace it with a binary symlink.

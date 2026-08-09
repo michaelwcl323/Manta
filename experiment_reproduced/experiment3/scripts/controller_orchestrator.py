@@ -10,8 +10,9 @@ variant. ``tusk`` and ``dag-rider`` share git branch ``tusk`` / tree
 ``$HOME/{flat_repo_name}``. All five protocols pass
 ``sigma``/``kappa``/``reference``/``coverage`` from ``matrix.yaml``.
 
-Prepare runs in parallel across all replicas (one variant at a time) and must
-finish before any WAN/delay setup or benchmark cells.
+At every protocol boundary, all replica processes are cleared and verified before
+that protocol is cloned and built from a fresh checkout. The WAN driver is prepared
+once before the first WAN setup.
 
 Suites:
   * figure11a — geo WAN clear+setup, faults=0
@@ -174,6 +175,69 @@ def replica_hosts(base_hosts: list[dict]) -> list[dict]:
             f"expected 10 replica hosts, got {len(hosts)}: {[h.get('hostname') for h in hosts]}"
         )
     return hosts
+
+
+def reset_remote_benchmark_processes(
+    *,
+    hosts: list[dict],
+    username: str,
+    remote_key: str,
+    tag: str,
+) -> None:
+    """Kill detached benchmark processes on every replica and verify zero remain.
+
+    This controller-level reset does not depend on whichever protocol checkout is
+    currently installed, so it is safe to run before a fresh clone or a protocol
+    switch.
+    """
+    remote_cmd = r"""
+set -euo pipefail
+pattern='[t]arget/(debug|release)/node|[b]enchmark_client|[./][n]ode .* run --keys|[/]tmp/run_(primary|worker|client)-|[r]esource-cpu[.]raw|[r]esource-net[.]raw'
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -TERM $pids 2>/dev/null || true
+  sleep 1
+fi
+pids="$(pgrep -f "$pattern" || true)"
+if [ -n "$pids" ]; then
+  kill -KILL $pids 2>/dev/null || true
+  sleep 1
+fi
+left="$(pgrep -af "$pattern" || true)"
+if [ -n "$left" ]; then
+  printf 'PROCESSES_LEFT=1\n%s\n' "$left" >&2
+  exit 42
+fi
+rm -f /tmp/run_[p]rimary-*.sh /tmp/run_[w]orker-*.sh /tmp/run_[c]lient-*.sh
+printf 'PROCESSES_LEFT=0\n'
+"""
+    failures: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:
+        futures = {}
+        for entry in hosts:
+            host = entry["hostname"]
+            user = entry.get("username") or username
+            future = pool.submit(
+                ssh_host,
+                user,
+                host,
+                remote_cmd,
+                identity=remote_key,
+                connect_timeout=30,
+            )
+            futures[future] = host
+        for future in as_completed(futures):
+            host = futures[future]
+            try:
+                future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append((host, str(exc)))
+    if failures:
+        detail = "; ".join(f"{host}: {error}" for host, error in failures)
+        raise SystemExit(
+            f"[{tag}] global process reset failed on {len(failures)} host(s): {detail}"
+        )
+    print(f"[{tag}] global process reset verified on {len(hosts)} hosts", flush=True)
 
 
 def merge_settings(
@@ -758,16 +822,31 @@ def main() -> int:
     if args.only_variant:
         variants = {args.only_variant: variants[args.only_variant]}
 
-    prepare_script = args.workdir / "scripts" / "prepare_repo.sh"
-    prepare_all_variants(
-        hosts=hosts,
-        username=username,
-        remote_key=args.remote_key,
-        repo_url=repo_url,
-        variants=variants,
-        prepare_script=prepare_script,
-        skip_prepare=args.skip_prepare,
+    reset_remote_benchmark_processes(
+        hosts=hosts, username=username, remote_key=args.remote_key, tag="exp3"
     )
+    prepare_script = args.workdir / "scripts" / "prepare_repo.sh"
+
+    # The WAN driver must exist before the first protocol boundary. Every actual
+    # protocol is freshly prepared again immediately before its own cells.
+    wan_variant_name = "manta" if "manta" in variants else next(iter(variants))
+    wan_cfg = variants[wan_variant_name]
+    if not args.skip_prepare:
+        prepare_controller_flat(
+            Path.home() / wan_cfg["flat_repo_name"],
+            repo_url,
+            wan_cfg["branch"],
+            prepare_script,
+        )
+        prepare_variant_on_replicas(
+            hosts=hosts,
+            username=username,
+            remote_key=args.remote_key,
+            repo_url=repo_url,
+            branch=wan_cfg["branch"],
+            flat_repo_name=wan_cfg["flat_repo_name"],
+            prepare_script=prepare_script,
+        )
 
     results_root = args.workdir / "results"
     results_root.mkdir(parents=True, exist_ok=True)
@@ -779,7 +858,6 @@ def main() -> int:
         suites = {args.only_suite: suites[args.only_suite]}
 
     # Prefer manta (or first variant) CloudLabWan for delay control.
-    wan_variant_name = "manta" if "manta" in variants else next(iter(variants))
     wan_flat = variants[wan_variant_name]["flat_repo_name"]
     wan_bench = Path.home() / wan_flat / "benchmark"
     if not wan_bench.is_dir():
@@ -832,8 +910,27 @@ def main() -> int:
         print("[exp3] phase wan: complete", flush=True)
 
         for variant_name, variant_cfg in variants.items():
+            reset_remote_benchmark_processes(
+                hosts=hosts, username=username, remote_key=args.remote_key, tag="exp3"
+            )
             flat = variant_cfg["flat_repo_name"]
             branch = variant_cfg["branch"]
+            if not args.skip_prepare:
+                prepare_controller_flat(
+                    Path.home() / flat,
+                    repo_url,
+                    branch,
+                    prepare_script,
+                )
+                prepare_variant_on_replicas(
+                    hosts=hosts,
+                    username=username,
+                    remote_key=args.remote_key,
+                    repo_url=repo_url,
+                    branch=branch,
+                    flat_repo_name=flat,
+                    prepare_script=prepare_script,
+                )
             bench_dir = Path.home() / flat / "benchmark"
             if not bench_dir.is_dir():
                 raise SystemExit(f"missing benchmark dir: {bench_dir}")
@@ -874,6 +971,12 @@ def main() -> int:
             )
             for rate in rates:
                 cell_i += 1
+                reset_remote_benchmark_processes(
+                    hosts=hosts,
+                    username=username,
+                    remote_key=args.remote_key,
+                    tag="exp3",
+                )
                 progress(
                     "exp3",
                     cell_i,

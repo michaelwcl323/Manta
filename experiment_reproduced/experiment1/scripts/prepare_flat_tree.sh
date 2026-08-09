@@ -17,9 +17,10 @@ if [ ! -d "$MONOREPO/.git" ]; then
 fi
 
 cd "$MONOREPO"
-git fetch --tags origin "$BRANCH" || true
-git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH" || true
+git fetch --tags origin "$BRANCH"
+git checkout -B "$BRANCH" "origin/$BRANCH"
+git reset --hard "origin/$BRANCH"
+test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")"
 
 rm -rf "$FLAT" "$BARE"
 mkdir -p "$FLAT"

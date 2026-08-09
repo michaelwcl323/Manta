@@ -15,11 +15,11 @@ network:
   wan_profile: wan/cloudlab_settings_geo.json
 
 defaults:
-  duration: 120
+  duration: 10
   nodes: 10
   workers: 1
   tx_size: 512
-  runs: 2
+  runs: 1
   rates: [80000, 100000, 120000]
   sigma: 2
   kappa: 2
