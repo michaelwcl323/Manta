@@ -54,32 +54,47 @@ def load_mean_latency_s(summary_csv: Path) -> dict[tuple[int, int, int], float]:
     return {key: sum(vals) / len(vals) for key, vals in grouped.items()}
 
 
-def build_series(means: dict[tuple[int, int, int], float]) -> list[tuple[str, str, str, list[float]]]:
+def build_series(
+    means: dict[tuple[int, int, int], float],
+    *,
+    allow_partial: bool = False,
+) -> list[tuple[str, str, str, list[int], list[float]]]:
     series = []
+    missing = []
     for sigma, label, color, linestyle in SERIES_SPEC:
+        xs = []
         ys = []
         for reference in REFERENCES:
             key = (sigma, KAPPA, reference)
             if key not in means:
-                raise SystemExit(
-                    f"missing averaged latency for sigma={sigma} kappa={KAPPA} ref={reference}"
-                )
+                if not allow_partial:
+                    raise SystemExit(
+                        f"missing averaged latency for sigma={sigma} kappa={KAPPA} ref={reference}"
+                    )
+                missing.append(key)
+                continue
+            xs.append(reference)
             ys.append(means[key])
-        series.append((label, color, linestyle, ys))
+        if ys:
+            series.append((label, color, linestyle, xs, ys))
+    if not series:
+        raise SystemExit("no Figure 10(b) series can be built from the summary CSV")
+    if missing:
+        print(f"[warn] Figure 10(b): plotting a partial grid; missing cells: {missing}")
     return series
 
 
 def draw(
-    series: list[tuple[str, str, str, list[float]]],
+    series: list[tuple[str, str, str, list[int], list[float]]],
     output_path: Path,
     *,
     auto_limits: bool = False,
 ) -> None:
     fig, ax = plt.subplots(figsize=(12.87, 8.58), dpi=180)
 
-    for label, color, linestyle, ys in series:
+    for label, color, linestyle, xs, ys in series:
         ax.plot(
-            REFERENCES,
+            xs,
             ys,
             color=color,
             linewidth=5.397,
@@ -92,7 +107,8 @@ def draw(
 
     ax.set_xlabel(r"Reference $ref$", fontsize=37.368)
     ax.set_ylabel("Latency (s)", fontsize=37.368)
-    ax.set_xticks(REFERENCES)
+    plotted_references = sorted({reference for _, _, _, xs, _ in series for reference in xs})
+    ax.set_xticks(plotted_references)
     if not auto_limits:
         ax.set_xlim(3.5, 10.5)
         ax.set_ylim(1.0, 1.3)
@@ -129,7 +145,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--auto-limits",
         action="store_true",
-        help="Do not apply paper-fixed xlim/ylim (for experiment reproduction).",
+        help=(
+            "Use data-driven limits and allow an incomplete parameter grid "
+            "(for filtered experiment reproduction)."
+        ),
     )
     return parser.parse_args()
 
@@ -137,7 +156,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     means = load_mean_latency_s(args.summary_csv.resolve())
-    series = build_series(means)
+    series = build_series(means, allow_partial=args.auto_limits)
     output = args.output.resolve()
     draw(series, output, auto_limits=args.auto_limits)
     print(output)

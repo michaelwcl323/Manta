@@ -258,20 +258,27 @@ def plot_figure10(local_results: Path, only_suite: str | None, output_dir: Path)
             d = fig10c / label
             if d.is_dir() and (d / "latency.csv").is_file():
                 run_dirs.append(d)
+        missing_labels = [label for label in FIGURE10C_LABELS if not (fig10c / label / "latency.csv").is_file()]
         if not plot_c.is_file():
             print(f"[exp2-local] skip plot 10c: missing {plot_c}", flush=True)
-        elif len(run_dirs) != 4:
+        elif len(run_dirs) < 2:
             print(
-                f"[exp2-local] skip plot 10c: need 4 run dirs with latency.csv under {fig10c}, "
-                f"found {len(run_dirs)} ({[p.name for p in run_dirs]})",
+                f"[exp2-local] skip plot 10c: need at least 2 run dirs with latency.csv under {fig10c}, "
+                f"found {len(run_dirs)} ({[p.name for p in run_dirs]}); missing {missing_labels}",
                 flush=True,
             )
         else:
+            if missing_labels:
+                print(
+                    f"[exp2-local] warning: plot 10c is partial; missing {missing_labels}",
+                    flush=True,
+                )
+            merge_option = "--merge-four-runs" if len(run_dirs) == 4 else "--merge-runs"
             rc = run(
                 [
                     sys.executable,
                     str(plot_c),
-                    "--merge-four-runs",
+                    merge_option,
                     *[str(p) for p in run_dirs],
                     "--time-axis",
                     "commit",

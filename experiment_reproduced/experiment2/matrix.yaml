@@ -15,7 +15,7 @@ network:
 
 defaults:
   rate: 100000
-  duration: 10
+  duration: 120
   nodes: 10
   workers: 1
   tx_size: 512
@@ -44,7 +44,7 @@ suites:
     network_tag: geo
     load_tag: balanced_50_50
     attack_enabled: false
-    runs: 1
+    runs: 3
     # coverage FIXED at 7 (paper), while reference sweeps
     coverage: 7
     sigma: [1, 2]
@@ -56,7 +56,7 @@ suites:
     network_tag: geo
     load_tag: balanced_50_500000_50
     attack_enabled: true
-    attack_start_secs: 5
+    attack_start_secs: 60
     attack_duration_secs: 1000
     attack_group_size: 5
     attack_limit_headers: false

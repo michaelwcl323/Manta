@@ -83,7 +83,7 @@ def resolve_config_label(run_dir: Path, node_params: dict) -> str:
     c = node_params.get("coverage")
     if k is not None and c is not None:
         return f"k{int(k)}-c{int(c)}"
-    m = search(r"-k(\d+)-ref(\d+)-", run_dir.name)
+    m = search(r"(?:^|-)k(\d+)-ref(\d+)(?:-|$)", run_dir.name)
     if m:
         return f"k{int(m.group(1))}-c{int(m.group(2))}"
     return config_label(node_params)

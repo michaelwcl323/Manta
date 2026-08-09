@@ -458,7 +458,7 @@ the geo WAN profile once, and sweeps parameter cells from `matrix.yaml`.
 
 - Branch: `experiment2`
 - Network: `geo` (paper 6+3+1; see `experiment_reproduced/experiment2/wan/`)
-- Figure 10(a)/(b): `σ∈{1,2}`, `κ∈{2,3,4}`, `ref∈{4,7,10}`, coverage fixed at 7, 1 run, $100000$ tx/s (18 cells)
+- Figure 10(a)/(b): `σ∈{1,2}`, `κ∈{2,3,4}`, `ref∈{4,7,10}`, coverage fixed at 7, 3 runs, $100000$ tx/s (18 cells)
 - Figure 10(c): certificate-limiting attack from $t=60$s; four `(κ, ref, coverage)` configs (4 cells)
 
 See `experiment_reproduced/experiment2/matrix.yaml` and `README.md`.

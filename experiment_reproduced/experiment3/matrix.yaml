@@ -200,8 +200,8 @@ suites:
     nodes: 10
     workers: 1
     tx_size: 512
-    duration: 10
-    runs: 1
+    duration: 120
+    runs: 2
     rate_type: balanced
   figure11c:
     figure: Figure11c
@@ -220,6 +220,6 @@ suites:
     nodes: 10
     workers: 1
     tx_size: 512
-    duration: 10
-    runs: 1
+    duration: 120
+    runs: 2
     rate_type: balanced
