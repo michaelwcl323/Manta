@@ -65,7 +65,7 @@ per-run summaries. Runtime files are written under each implementation's
 The other Figure 11(b) implementations are maintained in separate branches:
 
 | Protocol | Git branch |
-|---|---|---|
+|---|---|
 | Manta | `experiment3` |
 | Chitu | `experiment3` |
 | Mahi-Mahi | `mahi-mahi` |
