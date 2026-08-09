@@ -672,6 +672,21 @@ Due to limited resources of C6220 machines, sometimes we cannot generate experim
 
 Please use other nodes for experiments, and modify `node_type` and `aggregate` in `cloudlab_settings.json`
 
+### 6.2 **`python: command not found` or missing Python modules**
+
+`./scripts/environment_setup.sh` installs the required Python packages in the
+repository-local virtual environment `venv`. It does not activate that virtual
+environment in the current shell. From the repository root, activate it before
+running the Python commands in this README:
+
+```bash
+source venv/bin/activate
+```
+
+Run this command again after opening a new shell. A successful activation makes
+`python` and `python3` use the virtual environment; `which python` should point
+to `<repository-root>/venv/bin/python`.
+
 ## 7. Contact
 
 Please use the repository's GitHub issue tracker for artifact questions and reproducibility problems.
