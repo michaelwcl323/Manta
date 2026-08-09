@@ -71,31 +71,12 @@ All CloudLab settings are specified in `cloudlab_settings.json`.
 
 ### 3.1 Configure Portal API Access
 
-Download a CloudLab Portal API token and update the following fields in
-`cloudlab_settings.json`:
+Before provisioning the cluster, follow the separate
+[CloudLab configuration guide](cloudlab/README.md) to configure
+`cloudlab_settings.json`, the Portal API token, SSH credentials, replica hosts,
+machine type, and project/profile settings. Complete the configuration
+validation in that guide before running the commands below.
 
-```text
-portal.url
-portal.token
-portal.project
-portal.profile_name
-portal.profile_project
-portal.duration_hours
-
-experiment.name
-experiment.nodes
-experiment.node_type
-experiment.disk_image
-
-key.private
-key.pubkey
-ssh_key_password
-
-repo.url
-repo.branch
-```
-
-If the SSH private key is passphrase-protected, set `ssh_key_password` in `cloudlab_settings.json`. This value is required for the CloudLab remote functional test during deploy.
 ### 3.2 Instantiate the Experiment
 
 `start` regenerates the portal profile from `cloudlab_settings.json` and then instantiates the experiment. The profile provisions a shared experiment LAN so the replica `hosts` in `cloudlab_settings.json` can reach each other. If you change the profile, recreate the experiment with `terminate` then `start`.
@@ -560,6 +541,25 @@ the last $f=3$ nodes/clients are **not booted** (not the Experiment 2 attack).
 - Rates: $80000$–$180000$ tx/s (step $20000$), 2 runs, duration 120s
 - Same solid-wave params as 11(a) (see `matrix.yaml`)
 
+The `rates` in `matrix.yaml` are the nominal aggregate input rates before silent
+faults. With `nodes=10` and `faults=3`, the final three nodes and clients are not
+booted, so seven clients submit transactions and the TXT summaries report 70%
+of the nominal rate:
+
+| Matrix rate (tx/s) | TXT `Input rate` (tx/s) |
+|---:|---:|
+| 80,000 | 56,000 |
+| 100,000 | 70,000 |
+| 120,000 | 84,000 |
+| 140,000 | 98,000 |
+| 160,000 | 112,000 |
+| 180,000 | 126,000 |
+
+Keep the nominal 80k–180k values in the matrix; do not replace them with the
+effective values printed in the TXT files. Each rate has two runs. Tusk,
+DAG-Rider, and Manta store them in separate files, while Chitu and Mahi-Mahi may
+store two `SUMMARY` blocks in one TXT file.
+
 See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
 ##### Command
@@ -670,7 +670,11 @@ Mean CPU (%) and RX/TX (Mbps) per variant×rate matching paper Table 2 trends
 
 Due to limited resources of C6220 machines, sometimes we cannot generate experiment with enough nodes. 
 
-Please use other nodes for experiments, and modify `node_type` and `aggregate` in `cloudlab_settings.json`
+Choose another available machine type by changing `experiment.node_type` in
+`cloudlab_settings.json`, or leave it empty to let CloudLab choose. To use a
+different aggregate, configure the corresponding portal/project/profile;
+changing `experiment.aggregate` alone does not move the allocation. See the
+[CloudLab configuration guide](cloudlab/README.md) for details.
 
 ### 6.2 **`python: command not found` or missing Python modules**
 
