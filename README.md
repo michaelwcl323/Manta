@@ -693,6 +693,30 @@ Run this command again after opening a new shell. A successful activation makes
 `python` and `python3` use the virtual environment; `which python` should point
 to `<repository-root>/venv/bin/python`.
 
+### 6.3 **Experiment 3: `prepare failed on 1 host(s)` (often `10.10.1.1`)**
+
+**Cause:** that replica has a broken Rust install — `cargo` exists, but rustup has
+no default toolchain (or the toolchain download was incomplete). Prepare then skips
+reinstall and `cargo build` fails immediately.
+
+**Fix:** from your laptop, SSH **via the CloudLab controller** (the `10.10.1.x`
+addresses are not reachable from the public Internet), then repair Rust and rerun
+prepare:
+
+```bash
+# controller hostname is in build/controller
+ssh -A -i ~/.ssh/cloudlab_michael9 <user>@$(cat build/controller) \
+  'ssh -i ~/.ssh/manta_ae_functional <user>@10.10.1.1 "
+     export PATH=\"\$HOME/.cargo/bin:\$PATH\"
+     rustup toolchain uninstall stable || true
+     rustup toolchain install stable
+     rustup default stable
+     cargo --version
+   "'
+```
+
+Then rerun `run_figure11.py` **without** `--skip-prepare` so that host is rebuilt.
+
 ## 7. Contact
 
 Please use the repository's GitHub issue tracker for artifact questions and reproducibility problems.
