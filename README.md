@@ -498,7 +498,8 @@ See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 
 ```bash
 # CloudLab up + Getting Started first (see Section 3)
-python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11a
+python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11a
+# equivalent: --only-suite figure11a
 # or both 11(a) and 11(c):
 python experiment_reproduced/experiment3/run_figure11.py
 ```
@@ -565,7 +566,8 @@ See `experiment_reproduced/experiment3/matrix.yaml` and `README.md`.
 ##### Command
 
 ```bash
-python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
+python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11c
+# equivalent: --only-suite figure11c
 ```
 
 ##### Output

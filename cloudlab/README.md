@@ -13,6 +13,22 @@ You need:
 - an SSH key registered with the portal; and
 - your CloudLab login username.
 
+### How to get your portal API 
+
+1. Sign in to the CloudLab/APT portal that hosts your project.
+2. Open the user menu in the upper-right corner, go to the Portal API page, and download your API token.
+  ![](exp_figure/fig1.png)
+3. Save the downloaded token as `cloudlab.jwt` in the repository root, or choose
+   another private location and update `portal.token` accordingly:
+
+   ```json
+   "portal": {
+     "url": "https://boss.emulab.net:43794",
+     "token": "cloudlab.jwt"
+   }
+   ```
+
+
 ## Configuration Example
 
 Replace the placeholder values in `cloudlab_settings.json` with values for your
@@ -118,12 +134,6 @@ The public login hostnames downloaded from the Portal manifests are stored in
 - `repo.name` is the remote checkout directory name.
 - `repo.url` is the artifact Git repository.
 - `repo.branch` must be `artifact-evaluation` for the evaluation controller.
-
-## Credential Safety
-
-Keep Portal tokens, SSH private keys, and real passphrases out of Git.
-`cloudlab.jwt` and `cloudlab.pem` are ignored by this repository. If you store a
-passphrase in `cloudlab_settings.json`, do not commit that local value.
 
 ## Validate the Configuration
 

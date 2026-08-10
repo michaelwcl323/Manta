@@ -57,6 +57,8 @@ python experiment_reproduced/experiment3/run_figure11.py
 Useful filters:
 
 ```bash
+python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11a
+python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11c
 python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11a
 python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
 python experiment_reproduced/experiment3/run_figure11.py --only-variant manta

@@ -6,8 +6,9 @@ Replicas are never controlled directly from this machine; the controller SSHs to
 Usage (from repo root, after CloudLab is up and deploy_environment Getting Started done):
 
   python experiment_reproduced/experiment3/run_figure11.py
+  python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11a
+  python experiment_reproduced/experiment3/run_figure11.py --only-experiment 11c
   python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11a
-  python experiment_reproduced/experiment3/run_figure11.py --only-suite figure11c
   python experiment_reproduced/experiment3/run_figure11.py --only-variant manta
   python experiment_reproduced/experiment3/run_figure11.py --skip-prepare
 
@@ -36,6 +37,19 @@ PLOT_SCRIPTS_DIR = REPO_ROOT / "paper_data" / "graph_generated_code" / "experime
 
 VARIANT_CHOICES = ("tusk", "dag-rider", "manta", "chitu", "mahi-mahi")
 SUITE_CHOICES = ("figure11a", "figure11c")
+EXPERIMENT_CHOICES = ("11a", "11c")
+EXPERIMENT_TO_SUITE = {"11a": "figure11a", "11c": "figure11c"}
+
+
+def resolve_only_suite(only_suite: str | None, only_experiment: str | None) -> str | None:
+    """Map --only-experiment 11a/11c onto suite names; reject conflicting filters."""
+    from_exp = EXPERIMENT_TO_SUITE[only_experiment] if only_experiment else None
+    if only_suite and from_exp and only_suite != from_exp:
+        raise SystemExit(
+            f"conflicting filters: --only-suite {only_suite} vs --only-experiment {only_experiment} "
+            f"(maps to {from_exp})"
+        )
+    return only_suite or from_exp
 
 
 def nested(settings: dict, *keys, default=None):
@@ -176,7 +190,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD)
     p.add_argument("--connect-timeout", type=int, default=20)
     p.add_argument("--only-variant", choices=list(VARIANT_CHOICES), default=None)
-    p.add_argument("--only-suite", choices=list(SUITE_CHOICES), default=None)
+    p.add_argument(
+        "--only-suite",
+        choices=list(SUITE_CHOICES),
+        default=None,
+        help="Run only figure11a or figure11c (alias of --only-experiment)",
+    )
+    p.add_argument(
+        "--only-experiment",
+        choices=list(EXPERIMENT_CHOICES),
+        default=None,
+        help="Run only 11a or 11c (maps to --only-suite figure11a / figure11c)",
+    )
     p.add_argument("--skip-prepare", action="store_true", help="Skip clone/build on replicas and controller")
     p.add_argument("--skip-plot", action="store_true", help="Do not call Figure 11 plot scripts after sync")
     p.add_argument(
@@ -230,6 +255,7 @@ def plot_figure11(local_results: Path, only_suite: str | None, output_dir: Path)
 
 def main() -> int:
     args = parse_args()
+    args.only_suite = resolve_only_suite(args.only_suite, args.only_experiment)
     settings = load_settings(args.settings)
     username = default_username(settings)
     key = default_key(settings)

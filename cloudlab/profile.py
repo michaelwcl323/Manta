@@ -1,4 +1,8 @@
-"""CloudLab profile for the MANTA NSDI'27 artifact."""
+"""CloudLab profile for the MANTA NSDI'27 artifact.
+
+Creates a small-lan style shared LAN so replica nodes are reachable at
+10.10.1.1 .. 10.10.1.N (controller is the last node).
+"""
 
 import geni.portal as portal
 import geni.rspec.pg as rspec
@@ -49,11 +53,17 @@ bootstrap = (
     "(touch /local/bootstrap.failed; exit 1)"
 )
 
+# Small-lan style shared LAN for intra-experiment traffic (10.10.1.0/24).
+lan = request.LAN("lan")
+
 for index in range(params.nodes):
     node = request.RawPC("node-%d" % index)
     node.disk_image = "urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU22-64-STD"
     if params.node_type:
         node.hardware_type = params.node_type
+    iface = node.addInterface("eth1")
+    iface.addAddress(rspec.IPv4Address("10.10.1.%d" % (index + 1), "255.255.255.0"))
+    lan.addInterface(iface)
     node.addService(
         rspec.Execute(
             shell="bash",

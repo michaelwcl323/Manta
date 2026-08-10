@@ -64,6 +64,19 @@ MANTA_EXTRA_KEYS = (
 
 VARIANT_CHOICES = ("tusk", "dag-rider", "manta", "chitu", "mahi-mahi")
 SUITE_CHOICES = ("figure11a", "figure11c")
+EXPERIMENT_CHOICES = ("11a", "11c")
+EXPERIMENT_TO_SUITE = {"11a": "figure11a", "11c": "figure11c"}
+
+
+def resolve_only_suite(only_suite: str | None, only_experiment: str | None) -> str | None:
+    """Map --only-experiment 11a/11c onto suite names; reject conflicting filters."""
+    from_exp = EXPERIMENT_TO_SUITE[only_experiment] if only_experiment else None
+    if only_suite and from_exp and only_suite != from_exp:
+        raise SystemExit(
+            f"conflicting filters: --only-suite {only_suite} vs --only-experiment {only_experiment} "
+            f"(maps to {from_exp})"
+        )
+    return only_suite or from_exp
 
 
 def progress(tag: str, done: int, total: int, msg: str) -> None:
@@ -799,13 +812,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--matrix", type=Path, required=True)
     p.add_argument("--remote-key", required=True, help="SSH key path on controller for replica access")
     p.add_argument("--only-variant", choices=list(VARIANT_CHOICES), default=None)
-    p.add_argument("--only-suite", choices=list(SUITE_CHOICES), default=None)
+    p.add_argument(
+        "--only-suite",
+        choices=list(SUITE_CHOICES),
+        default=None,
+        help="Run only figure11a or figure11c (alias of --only-experiment)",
+    )
+    p.add_argument(
+        "--only-experiment",
+        choices=list(EXPERIMENT_CHOICES),
+        default=None,
+        help="Run only 11a or 11c (maps to --only-suite figure11a / figure11c)",
+    )
     p.add_argument("--skip-prepare", action="store_true")
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    args.only_suite = resolve_only_suite(args.only_suite, args.only_experiment)
     matrix = load_yaml(args.matrix)
     settings = json.loads(args.settings.read_text(encoding="utf-8"))
     if "cloudlab" in settings and isinstance(settings["cloudlab"], dict):
