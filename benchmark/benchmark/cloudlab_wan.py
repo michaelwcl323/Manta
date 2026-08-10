@@ -41,7 +41,14 @@ from paramiko.ssh_exception import PasswordRequiredException, SSHException
 from benchmark.cloudlab_instance import CloudLabInstanceManager
 from benchmark.utils import Print, BenchError
 
-WAN_SITES = ('europe', 'north_america', 'asia')
+WAN_SITES = (
+    'europe',
+    'north_america',
+    'asia',
+    'cluster_a',
+    'cluster_b',
+    'cluster_c',
+)
 
 DEFAULT_RTT_RULES: dict[str, int] = {
     'europe,europe': 20,
