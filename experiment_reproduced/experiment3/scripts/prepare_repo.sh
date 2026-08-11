@@ -35,10 +35,20 @@ find benchmark -mindepth 1 -maxdepth 1 -type d \( \
   -o -name '*_forpaper*' -o -name '*forpaper*' \
 \) -exec rm -rf {} + 2>/dev/null || true
 
-if ! command -v cargo >/dev/null 2>&1; then
+if ! command -v cargo >/dev/null 2>&1 || ! cargo --version >/dev/null 2>&1; then
+  # Missing cargo, or rustup proxy exists but default/toolchain is broken.
   curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+  # shellcheck disable=SC1091
   source "$HOME/.cargo/env"
 fi
+# Belts-and-suspenders: ensure a working default even if cargo was already on PATH.
+rustup default stable >/dev/null
+if ! cargo --version >/dev/null 2>&1; then
+  rustup toolchain uninstall stable >/dev/null 2>&1 || true
+  rustup toolchain install stable
+  rustup default stable
+fi
+cargo --version >/dev/null
 
 # Build every binary from the verified fresh checkout.
 cargo build --release --features benchmark

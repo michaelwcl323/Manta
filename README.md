@@ -695,16 +695,25 @@ to `<repository-root>/venv/bin/python`.
 
 ### 6.3 **Experiment 3: `prepare failed on 1 host(s)` (often `10.10.1.1`)**
 
-**Cause:** that replica has a broken Rust install — `cargo` exists, but rustup has
-no default toolchain (or the toolchain download was incomplete). Prepare then skips
-reinstall and `cargo build` fails immediately.
+**Cause:** during the first parallel prepare/deploy, all replicas install rustup at
+once; one host (commonly `10.10.1.1`) may finish with an incomplete toolchain
+(`cargo` proxy exists, but no working default / only a few tens of MB under
+`~/.rustup/toolchains`). Older `prepare_repo.sh` only checked `command -v cargo`,
+so it skipped reinstall and failed at `cargo build`. Current `prepare_repo.sh`
+verifies `cargo --version` and reinstalls if needed.
 
-**Fix:** from your laptop, SSH **via the CloudLab controller** (the `10.10.1.x`
-addresses are not reachable from the public Internet), then repair Rust and rerun
-prepare:
+**Fix:** pull the latest `artifact-evaluation` (with the hardened prepare script),
+then rerun **without** `--skip-prepare`:
 
 ```bash
-# controller hostname is in build/controller
+python experiment_reproduced/experiment3/run_figure11.py --only-variant manta --only-experiment 11a
+```
+
+If prepare still fails on one host, repair Rust **via the controller** (`10.10.1.x`
+is not reachable from the public Internet; controller hostname is in
+`build/controller`):
+
+```bash
 ssh -A -i ~/.ssh/cloudlab_michael9 <user>@$(cat build/controller) \
   'ssh -i ~/.ssh/manta_ae_functional <user>@10.10.1.1 "
      export PATH=\"\$HOME/.cargo/bin:\$PATH\"
@@ -715,7 +724,7 @@ ssh -A -i ~/.ssh/cloudlab_michael9 <user>@$(cat build/controller) \
    "'
 ```
 
-Then rerun `run_figure11.py` **without** `--skip-prepare` so that host is rebuilt.
+Then rerun `run_figure11.py` without `--skip-prepare`.
 
 ## 7. Contact
 
