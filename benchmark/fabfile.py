@@ -271,24 +271,10 @@ def cloudlab_remote(
     coverage=7,
 
 
-    allow_cross_step_weak_edges=False,  # 跨solid-step的weak edges
+    allow_cross_step_weak_edges=False,
 
-# 提交规则：
-#     对同一个 r1 leader，有 3 次机会：
-# 1. Fast coin 提前机会
-#    - 触发时机：收到第一个 r3 顶点
-#    - 检查对象：r2 -> r1
-#    - 额外前提：已经看到足够的候选顶点
-# 2. Solid-step 提前机会
-#    - 触发时机：收到第一个 r4 顶点
-#    - 检查对象：r3 -> r1
-#    - 额外前提：已经看到足够的候选顶点
-# 3. 默认 regular 路径
-#    - 触发时机：收到第一个 r5 顶点
-#    - 检查对象：r3 -> r1
-#    - 只要前面没提交成功，就还要走这一步
 
-    enable_fast_coin=False, # 关闭提前提交路径，保留 regular solid path
+    enable_fast_coin=False,
     solid_commit_trigger_on_solid_step=False,
     enable_commit_recheck=False,
     fast_coin_candidate_threshold=0,
@@ -301,12 +287,10 @@ def cloudlab_remote(
     attack_limit_headers=False,
     attack_limit_certificates=True,
 
-    # 这是payload 的调度，第三轮和第二轮的顶点接收payload，目前以第三轮顶点优先，多余的给第二轮
     enable_adaptive_intermediate_spill=False, # payload shceduling
     adaptive_intermediate_spill_trigger_digests=2,
     adaptive_intermediate_spill_cap_digests=1,
 
-    #会根据这些tag会自动生成目录，将运行结果分类 目录是 design_tag/network_tag/load_tag/
     design_tag='experiment2_attack_final',
     network_tag='geo',
     load_tag='balanced_50_500000_50',
@@ -335,8 +319,6 @@ def cloudlab_remote(
         'runs': 1,       
     }
 
-    # manta 对以下参数比较敏感 可调整成 50/500_000/50   100/500_000/100  50/128_000/50 80/128_000/35 等等
-    # 下面这组在geo631表现还可以, 有时候跑的不稳，900左右是正常，如果超过1000了可能是波动或者这个参数没有调优
     #  'max_header_delay': 80,  # ms
     #  'batch_size': 500_000,  # bytes
     # 'max_batch_delay': 35,  # ms

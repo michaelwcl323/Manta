@@ -3,16 +3,13 @@ import subprocess
 import sys
 
 def get_experimental_info():
-    """获取分配了 10.x.x.x IP 的网卡名称和具体的 IP 地址"""
     try:
-        # 使用 ip 命令获取所有 IPv4 地址信息
         output = subprocess.check_output("ip -o -4 addr show", shell=True, text=True)
         for line in output.splitlines():
-            # 寻找我们定义的实验网段 (10.x.x.x)
             if " 10." in line:
                 parts = line.split()
-                iface = parts[1]       # 第二列是网卡名 (例如 eth1, enp1s0f1)
-                ip_cidr = parts[3]     # 第四列是 IP/掩码 (例如 10.1.1.1/8)
+                iface = parts[1]
+                ip_cidr = parts[3]
                 ip = ip_cidr.split('/')[0]
                 return iface, ip
     except Exception as e:
@@ -20,7 +17,6 @@ def get_experimental_info():
     return None, None
 
 def run_commands(commands):
-    """执行 Shell 命令"""
     try:
         subprocess.run(commands, shell=True, check=True, executable='/bin/bash')
         print("[+] 配置应用成功！")
@@ -37,7 +33,6 @@ def main():
         
     print(f"[*] 发现实验网卡: {iface}, 本机 IP: {ip}")
 
-    # 判断当前节点角色并生成对应的配置命令
     if ip.startswith("10.1."):
         print("[*] 识别当前节点为: 欧洲 (EU) 节点")
         script = f"""
@@ -119,7 +114,6 @@ def main():
         print(f"[-] 未知的 IP 段 ({ip})，无法应用配置。")
         sys.exit(1)
 
-    # 运行对应的配置脚本
     run_commands(script)
     print("=== 配置完成 ===")
 
