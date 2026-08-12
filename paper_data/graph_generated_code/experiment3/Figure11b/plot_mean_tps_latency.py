@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 
 plt.rcParams["font.family"] = "DejaVu Sans"
 
-# Script location: paper_data/graph_generated_code/experiment3/大规模/
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[3]
 DATA_ROOT = REPO_ROOT / "paper_data" / "original_data" / "Figure11b"
