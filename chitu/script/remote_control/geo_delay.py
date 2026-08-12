@@ -1,29 +1,4 @@
 #!/usr/bin/env python3
-"""
-单文件节点脚本：放在 10.10.1.1–10.10.1.10 上即可独立配置出口时延，不依赖控制机代码。
-
-部署（每台相同）:
-  scp geo_netem_node.py user@10.10.1.X:~/
-  ssh user@10.10.1.X 'chmod +x ~/geo_netem_node.py'
-
-本机执行:
-  ~/geo_netem_node.py apply
-  ~/geo_netem_node.py clean
-  ~/geo_netem_node.py show
-
-远程调动（控制机循环 SSH）:
-  ssh user@10.10.1.1 'python3 ~/geo_netem_node.py apply'
-  或使用仓库里的 simulate_geo_netem.py 对多台批量执行同一命令。
-
-拓扑与默认延迟写在本文件常量里；仅当需要覆盖时才设置环境变量：
-  NETIF（强制网卡）、GEO_NETEM_ROUTE_PROBE（选网卡时 ip route get 的目标，默认 10.10.1.1）、
-  MYIP、EU_NODES_STR、AM_NODES_STR、AS_NODES_STR、DELAY_* 等。
-
-多网卡机器上「默认路由」网卡可能与发往 10.10.1.x 的网卡不同；本脚本优先按实验网路由选 dev，
-避免把 netem 挂在错误接口上（例如规则在 eno1 而流量走 enp5s0f0）。
-
-依赖：Python3、iproute2、无密码 sudo（或 root）。
-"""
 from __future__ import annotations
 
 import argparse
@@ -34,7 +9,6 @@ import subprocess
 import sys
 from typing import List, Sequence
 
-# 默认实验拓扑（与 simulate_geo_netem 一致）；拷贝单文件到各节点后无需任何配置即可 apply。
 DEFAULT_NODES: List[str] = [f"10.10.1.{i}" for i in range(1, 11)]
 DEFAULT_EU = DEFAULT_NODES[0:6]
 DEFAULT_AM = DEFAULT_NODES[6:9]
@@ -101,7 +75,6 @@ def detect_iface() -> str:
     netif = os.environ.get("NETIF", "").strip()
     if netif:
         return netif
-    # 先发往实验网一跳：与 ping 10.10.1.x 走同一出口，避免误用「默认路由」网卡
     probe = os.environ.get("GEO_NETEM_ROUTE_PROBE", "10.10.1.1").strip() or "10.10.1.1"
     dev = _dev_from_route_get(probe)
     if dev:
