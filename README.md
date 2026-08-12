@@ -77,95 +77,89 @@ protocol configuration; it does not have a separate source branch.
 
 ## 3. AWS Remote Environment Deployment
 
-This section configures and provisions the AWS testbed used by the 50-replica
-Figure 11(b) experiment. Complete this section before running the reproduction
-commands in Section 5.
+This section configures and provisions the AWS testbed used by the 50-replica Figure 11(b) experiment. Complete this section before running the reproduction commands in Section 5.
 
-### 3.1 Configure AWS API Access
+### 3.1 AWS CLI and Account Configuration
 
-Document how to configure the AWS credentials used by the deployment scripts:
+The AWS experiment is managed from a local controller through the AWS Command Line Interface (AWS CLI). The controller is not part of the consensus cluster and is only used to provision EC2 instances, configure the testbed, launch the
+experiment, and collect results.
 
-```text
-TODO: Add the required IAM permissions and the expected AWS credentials file
-or environment-variable configuration.
-```
-
-### 3.2 Configure SSH Key Pairs
-
-Document how to create or import the same SSH public key under the same key-pair
-name in every selected AWS region.
+Ensure that AWS CLI is installed on the controller:
 
 ```bash
-# TODO: Add SSH key generation and AWS key-pair import/validation commands.
+aws --version
 ```
 
-### 3.3 Configure the AWS Testbed
-
-Create the protocol benchmark `settings.json` files from a credential-free
-template:
-
-```json
-{
-  "key": {
-    "name": "<AWS_KEY_PAIR_NAME>",
-    "path": "<SSH_PRIVATE_KEY_PATH>"
-  },
-  "port": 5000,
-  "repo": {
-    "name": "<REPOSITORY_NAME>",
-    "url": "<REPOSITORY_URL>",
-    "branch": "<PROTOCOL_BRANCH>"
-  },
-  "instances": {
-    "type": "<INSTANCE_TYPE>",
-    "regions": ["<REGION_1>", "<REGION_2>"]
-  }
-}
-```
-
-> TODO: Document the final instance type, AWS regions, per-region instance
-> count, VPC/public-IP requirements, security-group ports, service quotas, and
-> cost warning. Explain which fields differ between protocol branches.
-
-### 3.4 Provision the EC2 Instances
+Configure the AWS credentials used for the artifact:
 
 ```bash
-# TODO: Add the command that creates the complete 50-instance testbed.
+aws configure
 ```
 
-Document how to check the provisioning status and confirm that exactly 50
-replica machines are running.
+Provide the **AWS Access Key ID** and **Secret Access Key** associated with the account used for the experiment. A default region is not required because all deployment commands explicitly specify the target AWS region.
 
-### 3.5 Initialize the Nodes
+Verify whether the credentials are valid:
+```bash
+aws sts get-caller-identity
+```
+
+The command should return the AWS account and IAM identity associated with the configured credentials.
+
+The 50-replica experiment uses the following three AWS regions:
+
+| AWS Cluster | Region |
+|---|---|
+| eu-central-1 | Frankfurt |
+| us-east-2   |    Ohio |
+| ap-east-1   |    Hong Kong |
+
+Verify that these regions are available to the account:
 
 ```bash
-# TODO: Wait for SSH, install remote dependencies, and clone protocol code.
+aws ec2 describe-regions \
+    --all-regions \
+    --query "Regions[?RegionName=='eu-central-1' || RegionName=='us-east-2' || RegionName=='ap-east-1'].[RegionName,OptInStatus]" \
+    --output table
 ```
 
-Document the remote operating-system image, login user, repository layout, and
-the success condition for initialization.
+### 3.2 Import the SSH Key
 
-### 3.6 Deploy and Validate the Artifact
+Import the public key into each AWS region used by the experiment:
 
 ```bash
-# TODO: Deploy binaries/configuration and run a short remote functional test.
+PUBLIC_KEY=~/.ssh/cloudlab_michael9.pub
+KEY_NAME=cloudlab_michael9
+
+for REGION in eu-central-1 us-east-2 ap-east-1
+do
+    aws ec2 import-key-pair \
+        --region $REGION \
+        --key-name $KEY_NAME \
+        --public-key-material fileb://$PUBLIC_KEY
+done
 ```
 
-```text
-TODO: Add the expected deployment and remote functional-test PASS output.
-```
-
-After this step succeeds, the AWS testbed is ready for the full experiment.
-
-### 3.7 Stop or Terminate the Testbed
+Verify that the key pair has been imported successfully:
 
 ```bash
-# TODO: Add the commands for stopping, restarting, and permanently terminating
-# the AWS instances.
+for REGION in eu-central-1 us-east-2 ap-east-1
+do
+    echo "===== $REGION ====="
+    aws ec2 describe-key-pairs \
+        --region $REGION \
+        --key-names $KEY_NAME \
+        --query 'KeyPairs[].[KeyName,KeyPairId]' \
+        --output table
+done
 ```
 
-Explain which operation preserves instance storage and which operation is
-permanent. Remind evaluators to collect results before termination.
+The public and private key will be used later to access the provisioned EC2 instances through SSH.
+
+
+### 3.3 Configure Security Groups
+
+Create one security group in each AWS region used by the experiment. At this stage, the security groups only allow SSH access from the controller. The inter-replica communication rules are added after the EC2 instances are provisioned and their public IP addresses are known.
+
 
 ## 4. Regenerating Figure 11(b) from the Paper Data
 
