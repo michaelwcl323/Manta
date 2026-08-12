@@ -424,6 +424,7 @@ def expand_cells(suite_name: str, suite: dict, defaults: dict) -> list[dict]:
     workers = int(suite.get("workers", defaults["workers"]))
     tx_size = int(suite.get("tx_size", defaults["tx_size"]))
     node_base = dict(defaults.get("node_params_base") or {})
+    node_base.update(suite.get("node_params") or {})
 
     common_tags = {
         "design_tag": suite["design_tag"],

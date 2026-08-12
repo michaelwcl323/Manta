@@ -17,7 +17,7 @@ variants:
     monorepo_subdir: decoupled
     rate: 100000
     runs: 2
-    duration: 60
+    duration: 120
     nodes: 10
     node_params:
       header_size: 1000
@@ -32,7 +32,7 @@ variants:
     flat_repo_name: manta-exp1-coupled
     monorepo_subdir: coupled
     rate: 60000
-    runs: 1
+    runs: 2
     duration: 120
     nodes: 10
     node_params:

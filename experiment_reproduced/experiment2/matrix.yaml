@@ -22,18 +22,18 @@ defaults:
   node_params_base:
     header_size: 1000
     max_header_delay: 50
-    gc_depth: 200
+    gc_depth: 50
     sync_retry_delay: 1000
     sync_retry_nodes: 7
     batch_size: 500000
     max_batch_delay: 50
-    allow_cross_step_weak_edges: false
-    enable_fast_coin: false
-    solid_commit_trigger_on_solid_step: false
-    enable_commit_recheck: false
-    fast_coin_candidate_threshold: 0
-    solid_candidate_threshold: 0
-    enable_adaptive_intermediate_spill: false
+    allow_cross_step_weak_edges: true
+    enable_fast_coin: true
+    solid_commit_trigger_on_solid_step: true
+    enable_commit_recheck: true
+    fast_coin_candidate_threshold: 4
+    solid_candidate_threshold: 4
+    enable_adaptive_intermediate_spill: true
     adaptive_intermediate_spill_trigger_digests: 2
     adaptive_intermediate_spill_cap_digests: 1
 
@@ -63,6 +63,15 @@ suites:
     attack_limit_certificates: true
     sigma: 1
     runs: 1
+    node_params:
+      gc_depth: 200
+      allow_cross_step_weak_edges: false
+      enable_fast_coin: false
+      solid_commit_trigger_on_solid_step: false
+      enable_commit_recheck: false
+      fast_coin_candidate_threshold: 0
+      solid_candidate_threshold: 0
+      enable_adaptive_intermediate_spill: false
     configs:
       - {kappa: 2, reference: 4, coverage: 4}
       - {kappa: 2, reference: 7, coverage: 7}
