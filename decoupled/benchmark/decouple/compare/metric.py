@@ -223,8 +223,8 @@ def _set_academic_style():
 def _build_positions() -> list[float]:
     positions = []
 
-    inner_gap = 0.017   # 组内间距（=柱宽，保证贴合）
-    group_gap = 0.012   # 组间间距（明显分隔）
+    inner_gap = 0.017
+    group_gap = 0.012
 
     x = 0.0
     for _ in NETWORKS:

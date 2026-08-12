@@ -1088,7 +1088,7 @@ class CloudLabBench:
         )
         committee.print(PathMaker.committee_file())
         
-        node_parameters.print(PathMaker.parameters_file())  # 改为 print() 而不是 save()
+        node_parameters.print(PathMaker.parameters_file())
         
         # Upload files to all hosts
         repo_name = self.settings.repo_name
