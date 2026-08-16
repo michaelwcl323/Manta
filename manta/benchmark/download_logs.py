@@ -362,7 +362,7 @@ def download_logs(settings_file='cloudlab_settings.json', max_workers=1):
     # Create instance manager
     manager = CloudLabInstanceManager(settings)
     host_info = manager.get_host_info()
-    repo_name = settings.repo_name
+    repo_name = settings.repo_path
     
     if not host_info:
         Print.error('No hosts configured')
@@ -479,7 +479,7 @@ def download_primary_logs(settings_file='cloudlab_settings.json', node_indices=N
     # Create instance manager
     manager = CloudLabInstanceManager(settings)
     host_info = manager.get_host_info()
-    repo_name = settings.repo_name
+    repo_name = settings.repo_path
     
     if not host_info:
         Print.error('No hosts configured')

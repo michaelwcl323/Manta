@@ -15,6 +15,11 @@ class ParseError(Exception):
 
 
 class LogParser:
+    _RUNTIME_FAILURE_PATTERN = (
+        r"(?m)(?:^thread '[^']+' panicked at|^panicked at|"
+        r'^Error:|^ERROR:|\sERROR\s)'
+    )
+
     def __init__(self, clients, primaries, workers, faults=0,
                  default_client_size=None, default_client_rates=None,
                  design_tag=None, network_tag=None):
@@ -98,8 +103,13 @@ class LogParser:
                     merged[k] = v
         return merged
 
+    @classmethod
+    def _runtime_failed(cls, log):
+        """Match actual panic/error records, not words inside random digests."""
+        return search(cls._RUNTIME_FAILURE_PATTERN, log) is not None
+
     def _parse_clients(self, log):
-        if search(r'Error', log) is not None:
+        if self._runtime_failed(log):
             raise ParseError('Client(s) panicked')
 
         size = int(search(r'Transactions size: (\d+)', log).group(1))
@@ -116,7 +126,7 @@ class LogParser:
         return size, rate, start, misses, samples
 
     def _parse_primaries(self, log):
-        if search(r'(?:panicked|Error)', log) is not None:
+        if self._runtime_failed(log):
             raise ParseError('Primary(s) panicked')
 
         tmp = findall(r'\[(.*Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', log)
@@ -170,7 +180,7 @@ class LogParser:
         return proposals, commits, configs, ip
 
     def _parse_workers(self, log):
-        if search(r'(?:panic|Error)', log) is not None:
+        if self._runtime_failed(log):
             raise ParseError('Worker(s) panicked')
 
         tmp = findall(r'Batch ([^ ]+) contains (\d+) B', log)

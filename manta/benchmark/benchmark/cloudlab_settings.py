@@ -5,6 +5,7 @@ Configuration for CloudLab deployment.
 """
 
 from json import load, JSONDecodeError
+from pathlib import PurePosixPath
 
 
 class CloudLabSettingsError(Exception):
@@ -14,9 +15,18 @@ class CloudLabSettingsError(Exception):
 class CloudLabSettings:
     """Settings for CloudLab deployment"""
 
-    def __init__(self, key_path, base_port, repo_name, repo_url, branch, hosts):
+    def __init__(
+        self,
+        key_path,
+        base_port,
+        repo_name,
+        repo_url,
+        branch,
+        hosts,
+        repo_subdir='',
+    ):
         # Validate inputs
-        inputs_str = [key_path, repo_name, repo_url, branch]
+        inputs_str = [key_path, repo_name, repo_url, branch, repo_subdir]
         ok = all(isinstance(x, str) for x in inputs_str)
         ok &= isinstance(base_port, int)
         ok &= isinstance(hosts, list)
@@ -37,11 +47,21 @@ class CloudLabSettings:
         if not ok:
             raise CloudLabSettingsError('Invalid settings types')
 
+        subdir = PurePosixPath(repo_subdir)
+        if subdir.is_absolute() or '..' in subdir.parts:
+            raise CloudLabSettingsError('repo.subdir must be a relative path')
+
         self.key_path = key_path
         self.base_port = base_port
         self.repo_name = repo_name
         self.repo_url = repo_url
         self.branch = branch
+        self.repo_subdir = repo_subdir.strip('/')
+        self.repo_path = (
+            f'{repo_name}/{self.repo_subdir}'
+            if self.repo_subdir
+            else repo_name
+        )
         self.hosts = hosts
 
     @classmethod
@@ -71,6 +91,7 @@ class CloudLabSettings:
                 data['repo']['url'],
                 data['repo']['branch'],
                 hosts,
+                data['repo'].get('subdir', ''),
             )
         except (OSError, JSONDecodeError) as e:
             raise CloudLabSettingsError(f'Failed to read settings file: {e}')

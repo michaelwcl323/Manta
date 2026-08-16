@@ -286,30 +286,30 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=2):
     ''' Run benchmarks on CloudLab '''
     bench_params = {
         'faults': 0,
-        'nodes': [10],
+        'nodes': [50],
         'workers': 1,
         'collocate': True,
         'design_tag': '',
-        'network_tag': '',
+        'network_tag': 'with_broadcast',
         'rate_type': 'balanced',
-        'rate': [40000,60000,80000,100000,120000,140000,160000],
+        'rate': [20000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 2,
+        'runs': 1,
     }
     node_params = {
         'header_size': 1_000,  # bytes
         'max_header_delay': 100,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 1000,  # ms
-        'sync_retry_nodes': 4,  # number of nodes
+        'sync_retry_nodes': 33,  # number of nodes
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 50,  # ms
         'support_broadcast': True,
         'sigma': 1,
         'kappa': 2,
-        'reference': 4,
-        'coverage': 7,
+        'reference': 17,
+        'coverage': 33,
     }
     try:
         CloudLabBench(ctx).run(bench_params, node_params, debug)

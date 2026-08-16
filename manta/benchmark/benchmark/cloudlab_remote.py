@@ -5,6 +5,7 @@ This module provides functionality to run benchmarks on CloudLab nodes.
 """
 
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
@@ -46,9 +47,10 @@ class CloudLabBench:
         self.settings = self.manager.settings
         
         try:
+            password = None
             # Try to load key without password first
             try:
-                ctx.connect_kwargs.pkey = RSAKey.from_private_key_file(
+                RSAKey.from_private_key_file(
                     self.manager.settings.key_path
                 )
             except PasswordRequiredException:
@@ -69,7 +71,7 @@ class CloudLabBench:
                         pass
                 
                 if password:
-                    ctx.connect_kwargs.pkey = RSAKey.from_private_key_file(
+                    RSAKey.from_private_key_file(
                         self.manager.settings.key_path,
                         password=password
                     )
@@ -78,7 +80,17 @@ class CloudLabBench:
                         'SSH key is password-protected. Please provide password via SSH_KEY_PASSWORD environment variable or ssh_key_password in cloudlab_settings.json',
                         PasswordRequiredException('private key file is encrypted')
                     )
-            self.connect = ctx.connect_kwargs
+            # Passing one loaded PKey object to ThreadingGroup shares it across all
+            # authentication threads. Older Paramiko/cryptography combinations can
+            # crash while releasing that shared native key. Let every connection
+            # load its own key instead.
+            self.connect = dict(ctx.connect_kwargs)
+            self.connect.pop('pkey', None)
+            self.connect['key_filename'] = self.manager.settings.key_path
+            self.connect['allow_agent'] = False
+            self.connect['look_for_keys'] = False
+            if password:
+                self.connect['passphrase'] = password
         except (IOError, PasswordRequiredException, SSHException) as e:
             raise BenchError('Failed to load SSH key', e)
     
@@ -101,6 +113,83 @@ class CloudLabBench:
         kwargs.pop('timeout', None)
         kwargs.pop('connect_timeout', None)
         return kwargs
+
+    def _run_with_retries(
+        self,
+        hosts,
+        command,
+        connect_timeout=60,
+        max_workers=10,
+        connect_retries=3,
+    ):
+        """Run one command on every host with bounded SSH concurrency.
+
+        Connection failures are retried per host. Remote command failures are
+        not retried because the command may have made partial changes.
+        """
+        if not hosts:
+            return
+
+        def run_one(host):
+            username = host.get('username', 'root')
+            hostname = host['hostname']
+            port = host.get('port', 22)
+            last_error = None
+
+            for attempt in range(1, connect_retries + 1):
+                connection = Connection(
+                    hostname,
+                    user=username,
+                    port=port,
+                    connect_kwargs=self._get_connection_kwargs(host),
+                    connect_timeout=connect_timeout,
+                )
+                try:
+                    connection.open()
+                except Exception as e:
+                    last_error = e
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+                    if attempt < connect_retries:
+                        sleep(2 ** (attempt - 1))
+                    continue
+
+                try:
+                    result = connection.run(command, hide=True, warn=True)
+                finally:
+                    connection.close()
+
+                if not result.ok:
+                    details = (result.stderr or result.stdout or '').strip()
+                    raise ExecutionError(
+                        f'{username}@{hostname}:{port} command failed '
+                        f'with exit code {result.exited}: {details}'
+                    )
+                return hostname
+
+            raise ExecutionError(
+                f'{username}@{hostname}:{port} unavailable after '
+                f'{connect_retries} attempts: {last_error}'
+            )
+
+        failures = []
+        worker_count = min(max_workers, len(hosts))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {executor.submit(run_one, host): host for host in hosts}
+            for future in as_completed(futures):
+                host = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    failures.append(f'{host["hostname"]}: {e}')
+
+        if failures:
+            raise ExecutionError(
+                'Remote command failed on the following hosts:\n  '
+                + '\n  '.join(sorted(failures))
+            )
     
     def test_connections(self):
         """Test SSH connections to all CloudLab nodes"""
@@ -180,6 +269,10 @@ class CloudLabBench:
         Print.info('Installing rust and cloning the repo...')
         
         host_info = self.manager.get_host_info()
+        repo_name = self.settings.repo_name
+        repo_path = self.settings.repo_path
+        repo_url = self.settings.repo_url
+        branch = self.settings.branch
         cmd = [
             'sudo apt-get update',
             'sudo apt-get install -y tmux',
@@ -199,8 +292,15 @@ class CloudLabBench:
             # Add cargo to PATH permanently
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.bashrc',
             'echo "export PATH=\\$HOME/.cargo/bin:\\$PATH" >> $HOME/.profile',
-            f'(git clone {self.settings.repo_url} || (cd {self.settings.repo_name} ; git pull))',
-            f'cd {self.settings.repo_name}/benchmark && pip3 install -r requirements.txt'
+            f'if [ ! -d {repo_name}/.git ]; then '
+            f'git clone --branch {branch} --single-branch {repo_url} {repo_name}; '
+            'fi',
+            f'git -C {repo_name} fetch origin {branch}',
+            f'git -C {repo_name} checkout {branch}',
+            f'git -C {repo_name} pull --ff-only origin {branch}',
+            f'test -d {repo_path}/benchmark || '
+            f'(echo "Benchmark directory {repo_path}/benchmark not found on branch {branch}" && exit 1)',
+            f'cd {repo_path}/benchmark && pip3 install -r requirements.txt'
         ]
         
         try:
@@ -352,7 +452,7 @@ class CloudLabBench:
         Print.heading('Debugging CloudLab nodes - checking tmux sessions...')
         
         host_info = self.manager.get_host_info()
-        repo_name = self.settings.repo_name
+        repo_name = self.settings.repo_path
         
         debug_cmd = f'''
             echo "=== Debugging $(hostname) ===" &&
@@ -501,6 +601,7 @@ class CloudLabBench:
         host_info = self.manager.get_host_info()
         host_dict = {h['hostname']: h for h in host_info}
         delete_logs_cmd = CommandMaker.clean_logs() if delete_logs else 'true'
+        repo_path = self.settings.repo_path
         # Kill benchmark processes by pattern matching
         # This will kill all processes matching the benchmark patterns
         kill_cmd = '''
@@ -514,7 +615,11 @@ class CloudLabBench:
         '''
         # Cleanup database directories and lock files
         cleanup_db_cmd = 'rm -rf .db-* 2>/dev/null || true'
-        cmd = [delete_logs_cmd, kill_cmd, cleanup_db_cmd]
+        workspace_cleanup_cmd = (
+            f'if [ -d {repo_path} ]; then cd {repo_path} && '
+            f'({delete_logs_cmd}) && ({cleanup_db_cmd}); fi'
+        )
+        cmd = [kill_cmd, workspace_cleanup_cmd]
         
         # If committee is provided, also kill processes using the ports
         ports_by_host = {}
@@ -615,7 +720,7 @@ class CloudLabBench:
             return  # No modification needed
         
         Print.info(f'Modifying TRIGGER_NETWORK_INTERRUPT to {trigger_attack} on all nodes...')
-        repo_name = self.settings.repo_name
+        repo_name = self.settings.repo_path
         attack_rs_path = f'{repo_name}/adversary/src/attack.rs'
         
         # Use sed command instead of Python script to avoid escaping issues
@@ -661,13 +766,15 @@ class CloudLabBench:
         """Update code on all hosts"""
         Print.info('Updating code on all nodes...')
         repo_name = self.settings.repo_name
+        repo_path = self.settings.repo_path
         branch = self.settings.branch
         
         cmd = [
-            f'cd {repo_name} || (echo "Repository {repo_name} not found. Please run: fab cloudlab-install" && exit 1)',
-            'git fetch',
-            f'git checkout {branch}',
-            'git pull',
+            f'test -d {repo_name} || (echo "Repository {repo_name} not found. Please run: fab cloudlab-install" && exit 1)',
+            f'git -C {repo_name} fetch',
+            f'git -C {repo_name} checkout {branch}',
+            f'git -C {repo_name} pull',
+            f'cd {repo_path} || (echo "Project directory {repo_path} not found" && exit 1)',
             # Recover from corrupted rustup metadata (e.g. empty settings.toml).
             'if [ -f "$HOME/.rustup/settings.toml" ] && ! grep -q "^version" "$HOME/.rustup/settings.toml"; '
             'then echo "Detected corrupted rustup settings.toml; resetting it"; rm -f "$HOME/.rustup/settings.toml"; fi',
@@ -708,28 +815,13 @@ class CloudLabBench:
             pass
         
         try:
-            # Group hosts by (username, port) to use Group efficiently
-            hosts_by_config = {}
-            for host in hosts:
-                username = host.get('username', 'root')
-                hostname = host['hostname']
-                port = host.get('port', 22)
-                key = (username, port)
-                if key not in hosts_by_config:
-                    hosts_by_config[key] = []
-                hosts_by_config[key].append(hostname)
-            
-            # Run commands on each group
-            for (username, port), hostnames in hosts_by_config.items():
-                conn_kwargs = self._get_connection_kwargs({})
-                g = Group(*hostnames, user=username, port=port, connect_kwargs=conn_kwargs, connect_timeout=60)
-                g.run(' && '.join(cmd), hide=True)
-                
-                # Modify attack.rs AFTER git operations (so the file exists)
-                if trigger_attack is not None:
-                    # Create a subset of hosts for modification
-                    modify_hosts = [{'hostname': h, 'username': username, 'port': port} for h in hostnames]
-                    self._modify_attack_rs(modify_hosts, trigger_attack)
+            # Limit concurrent SSH authentication and retry transient connection
+            # failures per host. All hosts must still complete successfully.
+            self._run_with_retries(hosts, ' && '.join(cmd))
+
+            # Modify attack.rs AFTER git operations (so the file exists).
+            if trigger_attack is not None:
+                self._modify_attack_rs(hosts, trigger_attack)
         except (GroupException, ExecutionError) as e:
             e = FabricError(e) if isinstance(e, GroupException) else e
             raise BenchError('Failed to update nodes', e)
@@ -834,7 +926,7 @@ class CloudLabBench:
             Print.info(f'Need to generate {len(key_files)} key files for {len(hosts)} hosts')
             
             # Generate keys on the first remote host (they're the same for all)
-            repo_name = self.settings.repo_name
+            repo_name = self.settings.repo_path
             first_host = hosts[0]
             username = first_host.get('username', 'root')
             hostname = first_host['hostname']
@@ -978,7 +1070,7 @@ class CloudLabBench:
         node_parameters.print(PathMaker.parameters_file())  # Use print() instead of save()
         
         # Upload files to all hosts
-        repo_name = self.settings.repo_name
+        repo_name = self.settings.repo_path
         files_to_upload = [
             (PathMaker.committee_file(), f'{repo_name}/.committee.json'),
             (PathMaker.parameters_file(), f'{repo_name}/.parameters.json'),
@@ -1134,12 +1226,46 @@ class CloudLabBench:
             design_tag=design_tag,
             network_tag=network_tag,
         )
+
+    def _background_run_parallel(self, jobs, role):
+        """Start one role with bounded parallel SSH sessions and wait for it."""
+        if not jobs:
+            return
+
+        failures = []
+        worker_count = min(10, len(jobs))
+        Print.info(
+            f'Starting {len(jobs)} {role} processes with '
+            f'up to {worker_count} concurrent SSH sessions...'
+        )
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(self._background_run, host, command, log_file): (
+                    host,
+                    log_file,
+                )
+                for host, command, log_file in jobs
+            }
+            for future in as_completed(futures):
+                host, log_file = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    failures.append(
+                        f'{log_file} on {host["hostname"]}: {e}'
+                    )
+
+        if failures:
+            raise BenchError(
+                f'Failed to start {role} processes in parallel',
+                ExecutionError('\n'.join(sorted(failures))),
+            )
     
     def _background_run(self, host_info, command, log_file):
         """Run a command in the background using nohup on a remote host"""
         from os.path import basename, splitext, dirname
         name = splitext(basename(log_file))[0]
-        repo_name = self.settings.repo_name
+        repo_name = self.settings.repo_path
         # remote_log is the full path from repo root
         remote_log = f'{repo_name}/{log_file}'
         # log_file_relative is the path relative to repo directory (after cd)
@@ -1151,8 +1277,36 @@ class CloudLabBench:
         conn_kwargs = self._get_connection_kwargs({})
         
         Print.info(f'Starting {name} on {hostname}...')
-        c = Connection(hostname, user=username, port=port, connect_kwargs=conn_kwargs, connect_timeout=30)
+        c = None
         try:
+            last_error = None
+            for attempt in range(1, 4):
+                candidate = Connection(
+                    hostname,
+                    user=username,
+                    port=port,
+                    connect_kwargs=conn_kwargs,
+                    connect_timeout=30,
+                )
+                try:
+                    candidate.open()
+                    c = candidate
+                    break
+                except Exception as e:
+                    last_error = e
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                    if attempt < 3:
+                        sleep(2 ** (attempt - 1))
+
+            if c is None:
+                raise BenchError(
+                    f'Failed to connect to {name} host {hostname} after 3 attempts',
+                    last_error,
+                )
+
             # Ensure repo binaries exist on this host. Some hosts only have target/release/*
             # and some may need a one-time build; normalize by creating root-level symlinks.
             test_cmd = (
@@ -1334,7 +1488,10 @@ SCRIPTEOF'''
                 else:
                     Print.warn(f'  ⚠ benchmark_client binary not found in PATH or current directory')
                 
-                # Don't raise error - let it continue, but provide detailed diagnostics
+                raise BenchError(
+                    f'{name} exited immediately on {hostname}',
+                    RuntimeError(f'Process {pid} is not running'),
+                )
             else:
                 Print.info(f'  ✓ Process {pid} is running')
                 
@@ -1342,6 +1499,9 @@ SCRIPTEOF'''
             if isinstance(e, BenchError):
                 raise
             raise BenchError(f'Failed to start {name} on {hostname}', e)
+        finally:
+            if c is not None:
+                c.close()
     
     def _get_host_by_address(self, address, selected_hosts):
         """Get host info by extracting IP from address"""
@@ -1422,6 +1582,7 @@ SCRIPTEOF'''
                 ValueError('Invalid rate_type')
             )
 
+        client_jobs = []
         worker_index = 0
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
@@ -1438,11 +1599,13 @@ SCRIPTEOF'''
                     [x for y in workers_addresses for _, x in y]
                 )
                 log_file = PathMaker.client_log_file(i, id)
-                self._background_run(host_info, cmd, log_file)
+                client_jobs.append((host_info, cmd, log_file))
                 worker_index += 1
+        self._background_run_parallel(client_jobs, 'client')
 
         # 3. Run the primaries (except the faulty ones) – same order as Bench._run_single
         Print.info('Booting primaries...')
+        primary_jobs = []
         for i, address in enumerate(committee.primary_addresses(faults)):
             host_info = self._get_host_by_address(address, selected_hosts)
             if not host_info:
@@ -1457,10 +1620,12 @@ SCRIPTEOF'''
                 debug=debug
             )
             log_file = PathMaker.primary_log_file(i)
-            self._background_run(host_info, cmd, log_file)
+            primary_jobs.append((host_info, cmd, log_file))
+        self._background_run_parallel(primary_jobs, 'primary')
 
         # 4. Run the workers (except the faulty ones) – same as Bench._run_single
         Print.info('Booting workers...')
+        worker_jobs = []
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
                 host_info = self._get_host_by_address(address, selected_hosts)
@@ -1477,7 +1642,8 @@ SCRIPTEOF'''
                     debug=debug
                 )
                 log_file = PathMaker.worker_log_file(i, id)
-                self._background_run(host_info, cmd, log_file)
+                worker_jobs.append((host_info, cmd, log_file))
+        self._background_run_parallel(worker_jobs, 'worker')
 
         # 5. Wait for all transactions to be processed (progress output)
         duration = bench_parameters.duration
@@ -1622,4 +1788,3 @@ SCRIPTEOF'''
                             continue
         
         Print.heading('All benchmarks completed')
-
