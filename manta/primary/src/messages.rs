@@ -211,6 +211,64 @@ impl fmt::Debug for Vote {
     }
 }
 
+/// A signed readiness vote used to model the communication latency of aggregating a
+/// flexible common coin. The vote does not contribute entropy: consensus continues
+/// to use its deterministic round-robin leader once enough distinct authorities have
+/// voted for the same leader/support-round pair.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CoinVote {
+    pub leader_round: Round,
+    pub support_round: Round,
+    pub author: PublicKey,
+    pub signature: Signature,
+}
+
+impl CoinVote {
+    pub async fn new(
+        leader_round: Round,
+        support_round: Round,
+        author: PublicKey,
+        signature_service: &mut SignatureService,
+    ) -> Self {
+        let vote = Self {
+            leader_round,
+            support_round,
+            author,
+            signature: Signature::default(),
+        };
+        let signature = signature_service.request_signature(vote.digest()).await;
+        Self { signature, ..vote }
+    }
+
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        ensure!(
+            committee.stake(&self.author) > 0,
+            DagError::UnknownAuthority(self.author)
+        );
+        self.signature
+            .verify(&self.digest(), &self.author)
+            .map_err(DagError::from)
+    }
+}
+
+impl Hash for CoinVote {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(b"manta-flexible-coin-vote-v1");
+        hasher.update(self.leader_round.to_le_bytes());
+        hasher.update(self.support_round.to_le_bytes());
+        hasher.update(&self.author);
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+/// Local request from consensus to the primary to sign and broadcast one `CoinVote`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CoinVoteRequest {
+    pub leader_round: Round,
+    pub support_round: Round,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,

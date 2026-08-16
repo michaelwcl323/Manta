@@ -1,11 +1,11 @@
 use super::*;
 use config::{Authority, PrimaryAddresses};
-use crypto::{generate_keypair, SecretKey};
-use primary::Header;
+use crypto::{generate_keypair, SecretKey, SignatureService};
+use primary::{CoinVote, CoinVoteRequest, Header};
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
 use std::collections::{BTreeSet, HashSet, VecDeque};
-use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{timeout, Duration};
 
 // Fixture
@@ -88,6 +88,57 @@ fn make_certificates(
     (certificates, next_parents)
 }
 
+/// Spawn consensus with a deterministic in-memory CoinVote responder. Network routing and
+/// signature verification are covered in the primary layer; consensus tests use this helper
+/// unless they explicitly need to control when the vote threshold is reached.
+fn spawn_consensus_with_mock_coin(
+    committee: Committee,
+    gc_depth: Round,
+    rx_primary: Receiver<Certificate>,
+    tx_primary: Sender<Certificate>,
+    tx_output: Sender<Certificate>,
+) {
+    let (tx_coin_vote_requests, mut rx_coin_vote_requests) = channel(32);
+    let (tx_coin_votes, rx_coin_votes) = channel(32);
+    let threshold = committee.validity_threshold() as usize;
+    let mut voters: Vec<_> = keys()
+        .into_iter()
+        .take(threshold)
+        .map(|(author, secret)| (author, SignatureService::new(secret)))
+        .collect();
+    tokio::spawn(async move {
+        while let Some(CoinVoteRequest {
+            leader_round,
+            support_round,
+        }) = rx_coin_vote_requests.recv().await
+        {
+            for (author, signature_service) in &mut voters {
+                let vote = CoinVote::new(
+                    leader_round,
+                    support_round,
+                    *author,
+                    signature_service,
+                )
+                .await;
+                if tx_coin_votes.send(vote).await.is_err() {
+                    return;
+                }
+            }
+        }
+    });
+
+    Consensus::spawn(
+        committee,
+        gc_depth,
+        /* support_broadcast */ true,
+        rx_primary,
+        tx_primary,
+        tx_output,
+        tx_coin_vote_requests,
+        rx_coin_votes,
+    );
+}
+
 // Run for 4 dag rounds in ideal conditions (all nodes reference all other nodes). We should commit
 // the leader of round 2.
 #[tokio::test]
@@ -108,7 +159,7 @@ async fn commit_one() {
     let (tx_waiter, rx_waiter) = channel(1);
     let (tx_primary, mut rx_primary) = channel(32);
     let (tx_output, mut rx_output) = channel(32);
-    Consensus::spawn(
+    spawn_consensus_with_mock_coin(
         mock_committee(),
         /* gc_depth */ 50,
         rx_waiter,
@@ -135,7 +186,8 @@ async fn commit_one() {
 
 #[tokio::test]
 async fn flexible_commit_on_support_round_without_waiting_for_trigger_round() {
-    let keys: Vec<_> = keys().into_iter().map(|(x, _)| x).collect();
+    let keypairs = keys();
+    let keys: Vec<_> = keypairs.iter().map(|(x, _)| *x).collect();
     let genesis = Certificate::genesis(&mock_committee())
         .iter()
         .map(|x| x.digest())
@@ -146,12 +198,17 @@ async fn flexible_commit_on_support_round_without_waiting_for_trigger_round() {
     let (tx_waiter, rx_waiter) = channel(1);
     let (tx_primary, mut rx_primary) = channel(32);
     let (tx_output, mut rx_output) = channel(8);
+    let (tx_coin_vote_requests, mut rx_coin_vote_requests) = channel(8);
+    let (tx_coin_votes, rx_coin_votes) = channel(8);
     Consensus::spawn(
         mock_committee(),
         /* gc_depth */ 50,
+        /* support_broadcast */ true,
         rx_waiter,
         tx_primary,
         tx_output,
+        tx_coin_vote_requests,
+        rx_coin_votes,
     );
     tokio::spawn(async move { while rx_primary.recv().await.is_some() {} });
 
@@ -169,6 +226,31 @@ async fn flexible_commit_on_support_round_without_waiting_for_trigger_round() {
         .await
         .unwrap();
 
+    let request = timeout(Duration::from_secs(1), rx_coin_vote_requests.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(request.leader_round, 2);
+    assert_eq!(request.support_round, 3);
+    assert!(timeout(Duration::from_millis(100), rx_output.recv()).await.is_err());
+
+    let mut coin_voters = keypairs.into_iter();
+    for vote_index in 0..2 {
+        let (author, secret) = coin_voters.next().unwrap();
+        let mut signature_service = SignatureService::new(secret);
+        let vote = CoinVote::new(
+            request.leader_round,
+            request.support_round,
+            author,
+            &mut signature_service,
+        )
+        .await;
+        tx_coin_votes.send(vote).await.unwrap();
+        if vote_index == 0 {
+            assert!(timeout(Duration::from_millis(100), rx_output.recv()).await.is_err());
+        }
+    }
+
     for _ in 1..=4 {
         let certificate = timeout(Duration::from_secs(1), rx_output.recv())
             .await
@@ -181,6 +263,52 @@ async fn flexible_commit_on_support_round_without_waiting_for_trigger_round() {
         .unwrap()
         .unwrap();
     assert_eq!(certificate.round(), 2);
+}
+
+#[tokio::test]
+async fn flexible_commit_skips_coin_votes_when_support_broadcast_is_disabled() {
+    let keys: Vec<_> = keys().into_iter().map(|(key, _)| key).collect();
+    let genesis = Certificate::genesis(&mock_committee())
+        .iter()
+        .map(|certificate| certificate.digest())
+        .collect::<BTreeSet<_>>();
+    let (mut certificates, next_parents) = make_certificates(1, 2, &genesis, &keys);
+    let (mut support_certificates, _) = make_certificates(3, 3, &next_parents, &keys);
+
+    let (tx_waiter, rx_waiter) = channel(1);
+    let (tx_primary, mut rx_primary) = channel(32);
+    let (tx_output, mut rx_output) = channel(8);
+    let (tx_coin_vote_requests, mut rx_coin_vote_requests) = channel(8);
+    let (_tx_coin_votes, rx_coin_votes) = channel(8);
+    Consensus::spawn(
+        mock_committee(),
+        50,
+        /* support_broadcast */ false,
+        rx_waiter,
+        tx_primary,
+        tx_output,
+        tx_coin_vote_requests,
+        rx_coin_votes,
+    );
+    tokio::spawn(async move { while rx_primary.recv().await.is_some() {} });
+
+    while let Some(certificate) = certificates.pop_front() {
+        tx_waiter.send(certificate).await.unwrap();
+    }
+    for _ in 0..2 {
+        tx_waiter
+            .send(support_certificates.pop_front().unwrap())
+            .await
+            .unwrap();
+    }
+
+    assert!(timeout(Duration::from_millis(100), rx_coin_vote_requests.recv())
+        .await
+        .is_err());
+    for _ in 1..=4 {
+        assert_eq!(rx_output.recv().await.unwrap().round(), 1);
+    }
+    assert_eq!(rx_output.recv().await.unwrap().round(), 2);
 }
 
 // Run for 8 dag rounds with one dead node node (that is not a leader). We should commit the leaders of
@@ -203,7 +331,7 @@ async fn dead_node() {
     let (tx_waiter, rx_waiter) = channel(1);
     let (tx_primary, mut rx_primary) = channel(32);
     let (tx_output, mut rx_output) = channel(32);
-    Consensus::spawn(
+    spawn_consensus_with_mock_coin(
         mock_committee(),
         /* gc_depth */ 50,
         rx_waiter,
@@ -291,7 +419,7 @@ async fn not_enough_support() {
     let (tx_waiter, rx_waiter) = channel(1);
     let (tx_primary, mut rx_primary) = channel(32);
     let (tx_output, mut rx_output) = channel(32);
-    Consensus::spawn(
+    spawn_consensus_with_mock_coin(
         mock_committee(),
         /* gc_depth */ 50,
         rx_waiter,
@@ -354,7 +482,7 @@ async fn missing_leader() {
     let (tx_waiter, rx_waiter) = channel(1);
     let (tx_primary, mut rx_primary) = channel(32);
     let (tx_output, mut rx_output) = channel(32);
-    Consensus::spawn(
+    spawn_consensus_with_mock_coin(
         mock_committee(),
         /* gc_depth */ 50,
         rx_waiter,

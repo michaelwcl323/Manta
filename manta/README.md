@@ -8,6 +8,13 @@ This implementation is designed to evaluate Manta under large network sizes. It 
 
 In this implementation, `σ` is fixed to `1`, and the **flexible-coin commit rule** is enabled.
 
+When the node parameter `support_broadcast` is enabled, a node that observes `f+1` certificates
+in the support round broadcasts one signed `CoinVote` to all other primaries. The commit check
+starts only after signed votes from distinct authorities reach `f+1` stake, modeling the network
+latency of making the flexible coin available. When disabled, the support gate invokes the commit
+check directly. These votes model coin readiness only; leader selection remains deterministic
+round-robin and the implementation does not derive randomness from the votes.
+
 ## Implementation Details
 
 After the first solid step, the protocol checks whether a commit can be made by examining the corresponding $ref$ vertices.

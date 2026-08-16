@@ -4,7 +4,7 @@ use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
-use crate::messages::{Certificate, Header, Vote};
+use crate::messages::{Certificate, CoinVote, CoinVoteRequest, Header, Vote};
 use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
@@ -32,6 +32,7 @@ pub type Round = u64;
 pub enum PrimaryMessage {
     Header(Header),
     Vote(Vote),
+    CoinVote(CoinVote),
     Certificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
 }
@@ -64,6 +65,8 @@ impl Primary {
         store: Store,
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
+        rx_coin_vote_requests: Receiver<CoinVoteRequest>,
+        tx_coin_votes: Sender<CoinVote>,
     ) {
         let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
         let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
@@ -138,7 +141,7 @@ impl Primary {
         let signature_service = SignatureService::new(secret);
 
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
-        Core::spawn(
+        Core::spawn_with_coin(
             name,
             committee.clone(),
             store.clone(),
@@ -152,6 +155,8 @@ impl Primary {
             /* rx_proposer */ rx_headers,
             tx_consensus,
             /* tx_proposer */ tx_parents,
+            rx_coin_vote_requests,
+            tx_coin_votes,
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state

@@ -49,6 +49,7 @@ def local(ctx, debug=False):
         'sync_retry_nodes': 7,  # number of nodes
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 200,  # ms
+        'support_broadcast': True,
         'sigma': 2,
         'kappa': 2,
         'reference': 4,
@@ -161,6 +162,7 @@ def remote(ctx, debug=False):
         'sync_retry_nodes': 33,  # number of nodes
         'batch_size': 500000,  # bytes
         'max_batch_delay': 50,  # ms
+        'support_broadcast': True,
         'sigma': 1,
         'kappa': 2,
         'reference': 17,
@@ -303,6 +305,7 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=2):
         'sync_retry_nodes': 4,  # number of nodes
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 50,  # ms
+        'support_broadcast': True,
         'sigma': 1,
         'kappa': 2,
         'reference': 4,

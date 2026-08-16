@@ -134,6 +134,9 @@ class LogParser:
             tmp = [(d, self._to_posix(t)) for t, d in tmp]
             commits = self._merge_results([tmp])
 
+        support_broadcast_match = search(
+            r'Support broadcast set to (true|false)', log
+        )
         configs = {
             'header_size': int(
                 search(r'Header size .* (\d+)', log).group(1)
@@ -155,6 +158,10 @@ class LogParser:
             ),
             'max_batch_delay': int(
                 search(r'Max batch delay .* (\d+)', log).group(1)
+            ),
+            'support_broadcast': (
+                support_broadcast_match is not None
+                and support_broadcast_match.group(1) == 'true'
             ),
         }
 
@@ -255,6 +262,7 @@ class LogParser:
         sync_retry_nodes = self.configs[0]['sync_retry_nodes']
         batch_size = self.configs[0]['batch_size']
         max_batch_delay = self.configs[0]['max_batch_delay']
+        support_broadcast = self.configs[0]['support_broadcast']
 
         consensus_latency = self._consensus_latency() * 1_000
         consensus_tps, consensus_bps, _ = self._consensus_throughput()
@@ -284,6 +292,7 @@ class LogParser:
             f' Sync retry nodes: {sync_retry_nodes:,} node(s)\n'
             f' batch size: {batch_size:,} B\n'
             f' Max batch delay: {max_batch_delay:,} ms\n'
+            f' Support broadcast: {support_broadcast}\n'
             '\n'
             ' + RESULTS:\n'
             f' Consensus TPS: {round(consensus_tps):,} tx/s\n'

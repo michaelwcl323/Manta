@@ -33,7 +33,8 @@ node_params = {
     'sync_retry_delay': 10_000,
     'sync_retry_nodes': 3,
     'batch_size': 500_000,
-    'max_batch_delay': 100
+    'max_batch_delay': 100,
+    'support_broadcast': True
 }
 ```
 They are defined as follows:
@@ -44,6 +45,7 @@ They are defined as follows:
 * `sync_retry_nodes`: Determine with how many nodes to sync when re-trying to send sync-request. These nodes are picked at random from the committee.
 * `batch_size`: The preferred batch size. The workers seal a batch of transactions when it reaches this size. Denominated in bytes.
 * `max_batch_delay`: The delay after which the workers seal a batch of transactions, even if `max_batch_size` is not reached. Denominated in ms.
+* `support_broadcast`: When `True`, wait for an all-to-all `CoinVote` aggregation reaching `f+1` stake after the flexible support gate. When `False`, run the original direct flexible commit check. It defaults to `False` when omitted; use the same value on every primary.
 
 ### Run the benchmark
 Once you specified both `bench_params` and `node_params` as desired, run:

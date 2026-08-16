@@ -1,6 +1,6 @@
 use crate::aggregators::{CertificatesAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, ProposalParents, Vote};
+use crate::messages::{Certificate, CoinVote, CoinVoteRequest, Header, ProposalParents, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
@@ -48,6 +48,10 @@ pub struct Core {
     tx_consensus: Sender<Certificate>,
     /// Send valid parent snapshots to the `Proposer` (along with their round).
     tx_proposer: Sender<(ProposalParents, Round)>,
+    /// Receives requests from consensus to sign and broadcast a flexible-coin vote.
+    rx_coin_vote_requests: Receiver<CoinVoteRequest>,
+    /// Delivers verified flexible-coin votes to consensus.
+    tx_coin_votes: Sender<CoinVote>,
 
     /// The last garbage collected round.
     gc_round: Round,
@@ -91,6 +95,45 @@ impl Core {
         tx_consensus: Sender<Certificate>,
         tx_proposer: Sender<(ProposalParents, Round)>,
     ) {
+        let (_tx_coin_vote_requests, rx_coin_vote_requests) = tokio::sync::mpsc::channel(1);
+        let (tx_coin_votes, _rx_coin_votes) = tokio::sync::mpsc::channel(1);
+        Self::spawn_with_coin(
+            name,
+            committee,
+            store,
+            synchronizer,
+            signature_service,
+            consensus_round,
+            gc_depth,
+            rx_primaries,
+            rx_header_waiter,
+            rx_certificate_waiter,
+            rx_proposer,
+            tx_consensus,
+            tx_proposer,
+            rx_coin_vote_requests,
+            tx_coin_votes,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_with_coin(
+        name: PublicKey,
+        committee: Committee,
+        store: Store,
+        synchronizer: Synchronizer,
+        signature_service: SignatureService,
+        consensus_round: Arc<AtomicU64>,
+        gc_depth: Round,
+        rx_primaries: Receiver<PrimaryMessage>,
+        rx_header_waiter: Receiver<Header>,
+        rx_certificate_waiter: Receiver<Certificate>,
+        rx_proposer: Receiver<Header>,
+        tx_consensus: Sender<Certificate>,
+        tx_proposer: Sender<(ProposalParents, Round)>,
+        rx_coin_vote_requests: Receiver<CoinVoteRequest>,
+        tx_coin_votes: Sender<CoinVote>,
+    ) {
         tokio::spawn(async move {
             Self {
                 name,
@@ -106,6 +149,8 @@ impl Core {
                 rx_proposer,
                 tx_consensus,
                 tx_proposer,
+                rx_coin_vote_requests,
+                tx_coin_votes,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing: HashMap::with_capacity(2 * gc_depth as usize),
@@ -118,6 +163,49 @@ impl Core {
             .run()
             .await;
         });
+    }
+
+    async fn process_coin_vote_request(&mut self, request: CoinVoteRequest) -> DagResult<()> {
+        let vote = CoinVote::new(
+            request.leader_round,
+            request.support_round,
+            self.name,
+            &mut self.signature_service,
+        )
+        .await;
+
+        debug!(
+            "Broadcasting flexible coin vote: leader_round={}, support_round={}, author={}",
+            vote.leader_round, vote.support_round, vote.author
+        );
+        let bytes = bincode::serialize(&PrimaryMessage::CoinVote(vote.clone()))
+            .expect("Failed to serialize flexible coin vote");
+        for (_, address) in self.committee.others_primaries(&self.name) {
+            let handler = self
+                .network
+                .send(address.primary_to_primary, Bytes::from(bytes.clone()))
+                .await;
+            tokio::spawn(async move {
+                let _ = handler.await;
+            });
+        }
+
+        if let Err(e) = self.tx_coin_votes.send(vote).await {
+            warn!("Failed to deliver our flexible coin vote to consensus: {}", e);
+        }
+        Ok(())
+    }
+
+    async fn process_coin_vote(&mut self, vote: CoinVote) -> DagResult<()> {
+        vote.verify(&self.committee)?;
+        debug!(
+            "Received verified flexible coin vote: leader_round={}, support_round={}, author={}",
+            vote.leader_round, vote.support_round, vote.author
+        );
+        if let Err(e) = self.tx_coin_votes.send(vote).await {
+            warn!("Failed to deliver flexible coin vote to consensus: {}", e);
+        }
+        Ok(())
     }
 
     async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
@@ -603,6 +691,7 @@ impl Core {
                                 }
                             }
                         },
+                        PrimaryMessage::CoinVote(vote) => self.process_coin_vote(vote).await,
                         PrimaryMessage::Certificate(certificate) => {
                             let origin = certificate.origin();
                             let origin_node = self
@@ -665,6 +754,11 @@ impl Core {
 
                 // We also receive here our new headers created by the `Proposer`.
                 Some(header) = self.rx_proposer.recv() => self.process_own_header(header).await,
+
+                // Consensus starts this phase once its flexible support gate reaches f+1.
+                Some(request) = self.rx_coin_vote_requests.recv() => {
+                    self.process_coin_vote_request(request).await
+                },
             };
             match result {
                 Ok(()) => (),

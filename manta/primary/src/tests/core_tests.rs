@@ -88,6 +88,84 @@ async fn process_header() {
 }
 
 #[tokio::test]
+async fn broadcast_and_forward_coin_vote() {
+    let (name, secret) = keys().pop().unwrap();
+    let signature_service = SignatureService::new(secret);
+    let committee = committee_with_base_port(13_200);
+
+    let (tx_sync_headers, _rx_sync_headers) = channel(1);
+    let (tx_sync_certificates, _rx_sync_certificates) = channel(1);
+    let (_tx_primary_messages, rx_primary_messages) = channel(1);
+    let (_tx_headers_loopback, rx_headers_loopback) = channel(1);
+    let (_tx_certificates_loopback, rx_certificates_loopback) = channel(1);
+    let (_tx_headers, rx_headers) = channel(1);
+    let (tx_consensus, _rx_consensus) = channel(1);
+    let (tx_parents, _rx_parents) = channel(1);
+    let (tx_coin_vote_requests, rx_coin_vote_requests) = channel(1);
+    let (tx_coin_votes, mut rx_coin_votes) = channel(1);
+
+    let path = ".db_test_coin_vote";
+    let _ = fs::remove_dir_all(path);
+    let store = Store::new(path).unwrap();
+    let synchronizer = Synchronizer::new(
+        name,
+        &committee,
+        store.clone(),
+        tx_sync_headers,
+        tx_sync_certificates,
+    );
+    let handles: Vec<_> = committee
+        .others_primaries(&name)
+        .iter()
+        .map(|(_, address)| listener(address.primary_to_primary))
+        .collect();
+
+    Core::spawn_with_coin(
+        name,
+        committee.clone(),
+        store,
+        synchronizer,
+        signature_service,
+        Arc::new(AtomicU64::new(0)),
+        50,
+        rx_primary_messages,
+        rx_headers_loopback,
+        rx_certificates_loopback,
+        rx_headers,
+        tx_consensus,
+        tx_parents,
+        rx_coin_vote_requests,
+        tx_coin_votes,
+    );
+
+    tx_coin_vote_requests
+        .send(CoinVoteRequest {
+            leader_round: 2,
+            support_round: 3,
+        })
+        .await
+        .unwrap();
+
+    let local_vote = rx_coin_votes.recv().await.unwrap();
+    assert_eq!(local_vote.author, name);
+    assert_eq!(local_vote.leader_round, 2);
+    assert_eq!(local_vote.support_round, 3);
+    local_vote.verify(&committee).unwrap();
+
+    for received in try_join_all(handles).await.unwrap() {
+        match bincode::deserialize(&received).unwrap() {
+            PrimaryMessage::CoinVote(vote) => {
+                assert_eq!(vote.author, name);
+                assert_eq!(vote.leader_round, 2);
+                assert_eq!(vote.support_round, 3);
+                vote.verify(&committee).unwrap();
+            }
+            message => panic!("Unexpected message: {:?}", message),
+        }
+    }
+}
+
+#[tokio::test]
 async fn process_header_missing_parent() {
     let (name, secret) = keys().pop().unwrap();
     let signature_service = SignatureService::new(secret);

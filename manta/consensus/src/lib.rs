@@ -1,10 +1,11 @@
-use config::Committee;
+use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use log::{debug, info, log_enabled, warn};
-use primary::{Certificate, Round};
+use primary::{Certificate, CoinVote, CoinVoteRequest, Round};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[cfg(test)]
@@ -15,6 +16,15 @@ pub mod consensus_tests;
 type DagEntry = (Digest, Certificate);
 type Dag = HashMap<Round, HashMap<PublicKey, DagEntry>>;
 type DagPosition = (Round, PublicKey);
+type CoinVoteKey = (Round, Round); // (leader_round, support_round)
+
+#[derive(Default)]
+struct CoinVoteAggregation {
+    requested: bool,
+    ready: bool,
+    voters: HashSet<PublicKey>,
+    started_at: Option<Instant>,
+}
 
 /// The state that needs to be persisted for crash-recovery.
 struct State {
@@ -32,6 +42,8 @@ struct State {
     certificate_index: HashMap<Digest, DagPosition>,
     /// Fast lookup for both certificate digests and header ids. Used by logging / visualization.
     digest_index: HashMap<Digest, DagPosition>,
+    /// Signed flexible-coin readiness votes, keyed by leader/support-round pair.
+    coin_votes: HashMap<CoinVoteKey, CoinVoteAggregation>,
 }
 
 impl State {
@@ -43,6 +55,7 @@ impl State {
             dag: HashMap::new(),
             certificate_index: HashMap::new(),
             digest_index: HashMap::new(),
+            coin_votes: HashMap::new(),
         };
 
         for certificate in genesis {
@@ -131,6 +144,9 @@ impl State {
 
     fn update_last_committed_leader(&mut self, leader_round: Round) {
         self.last_committed_leader_round = max(self.last_committed_leader_round, leader_round);
+        let committed_round = self.last_committed_leader_round;
+        self.coin_votes
+            .retain(|(candidate_round, _), _| *candidate_round > committed_round);
     }
 }
 
@@ -143,6 +159,8 @@ pub struct Consensus {
     author_to_node: HashMap<PublicKey, usize>,
     /// The depth of the garbage collector.
     gc_depth: Round,
+    /// Whether flexible commits wait for an all-to-all CoinVote aggregation.
+    support_broadcast: bool,
 
     /// Receives new certificates from the primary. The primary should send us new certificates only
     /// if it already sent us its whole history.
@@ -151,6 +169,10 @@ pub struct Consensus {
     tx_primary: Sender<Certificate>,
     /// Outputs the sequence of ordered certificates to the application layer.
     tx_output: Sender<Certificate>,
+    /// Requests the local primary to sign and broadcast one flexible-coin vote.
+    tx_coin_vote_requests: Sender<CoinVoteRequest>,
+    /// Receives verified flexible-coin votes from local and remote primaries.
+    rx_coin_votes: Receiver<CoinVote>,
 
     /// The genesis certificates.
     genesis: Vec<Certificate>,
@@ -160,9 +182,12 @@ impl Consensus {
     pub fn spawn(
         committee: Committee,
         gc_depth: Round,
+        support_broadcast: bool,
         rx_primary: Receiver<Certificate>,
         tx_primary: Sender<Certificate>,
         tx_output: Sender<Certificate>,
+        tx_coin_vote_requests: Sender<CoinVoteRequest>,
+        rx_coin_votes: Receiver<CoinVote>,
     ) {
         let authorities: Vec<_> = committee.authorities.keys().copied().collect();
         let author_to_node = authorities
@@ -177,9 +202,12 @@ impl Consensus {
                 authorities,
                 author_to_node,
                 gc_depth,
+                support_broadcast,
                 rx_primary,
                 tx_primary,
                 tx_output,
+                tx_coin_vote_requests,
+                rx_coin_votes,
                 genesis: Certificate::genesis(&committee),
             }
             .run()
@@ -210,6 +238,120 @@ impl Consensus {
             .get(&support_round)
             .map(|round_map| round_map.len() >= self.committee.validity_threshold() as usize)
             .unwrap_or(false)
+    }
+
+    fn coin_vote_ready(
+        &self,
+        state: &State,
+        leader_round: Round,
+        support_round: Round,
+    ) -> bool {
+        state
+            .coin_votes
+            .get(&(leader_round, support_round))
+            .map(|aggregation| aggregation.ready)
+            .unwrap_or(false)
+    }
+
+    /// Start exactly one all-to-all vote phase for this flexible-coin instance.
+    async fn ensure_coin_vote_requested(
+        &mut self,
+        state: &mut State,
+        leader_round: Round,
+        support_round: Round,
+    ) {
+        if leader_round <= state.last_committed_leader_round {
+            return;
+        }
+
+        let aggregation = state
+            .coin_votes
+            .entry((leader_round, support_round))
+            .or_default();
+        if aggregation.requested {
+            return;
+        }
+        aggregation.requested = true;
+        aggregation.started_at = Some(Instant::now());
+
+        info!(
+            "FLEXIBLE_COIN_VOTE_START leader_round={} support_round={} threshold={}",
+            leader_round,
+            support_round,
+            self.committee.validity_threshold()
+        );
+        let request = CoinVoteRequest {
+            leader_round,
+            support_round,
+        };
+        if let Err(e) = self.tx_coin_vote_requests.send(request).await {
+            warn!(
+                "Failed to request flexible coin vote for leader_round={} support_round={}: {}",
+                leader_round, support_round, e
+            );
+        }
+    }
+
+    /// Record one verified vote. Authorities are counted once and readiness is stake based.
+    fn record_coin_vote(&self, state: &mut State, vote: CoinVote) -> bool {
+        if vote.leader_round <= state.last_committed_leader_round {
+            return false;
+        }
+        if self.committee.stake(&vote.author) == 0 {
+            warn!(
+                "Ignoring flexible coin vote from unknown authority {:?}",
+                vote.author
+            );
+            return false;
+        }
+        if self.flexible_commit_candidate(vote.support_round)
+            != Some((vote.leader_round, vote.support_round))
+        {
+            warn!(
+                "Ignoring flexible coin vote with invalid rounds: leader_round={} support_round={}",
+                vote.leader_round, vote.support_round
+            );
+            return false;
+        }
+
+        let aggregation = state
+            .coin_votes
+            .entry((vote.leader_round, vote.support_round))
+            .or_default();
+        if !aggregation.voters.insert(vote.author) {
+            return aggregation.ready;
+        }
+
+        let stake: Stake = aggregation
+            .voters
+            .iter()
+            .map(|author| self.committee.stake(author))
+            .sum();
+        let threshold = self.committee.validity_threshold();
+        info!(
+            "FLEXIBLE_COIN_VOTE_RECEIVED leader_round={} support_round={} voter={:?} stake={} threshold={}",
+            vote.leader_round,
+            vote.support_round,
+            vote.author,
+            stake,
+            threshold
+        );
+
+        if !aggregation.ready && stake >= threshold {
+            aggregation.ready = true;
+            let latency_ms = aggregation
+                .started_at
+                .map(|started| started.elapsed().as_millis());
+            info!(
+                "FLEXIBLE_COIN_READY leader_round={} support_round={} stake={} threshold={} latency_ms={:?}",
+                vote.leader_round,
+                vote.support_round,
+                stake,
+                threshold,
+                latency_ms
+            );
+        }
+        aggregation.ready
     }
 
     async fn try_commit(
@@ -449,49 +591,102 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
         true
     }
 
+    async fn process_certificate(&mut self, state: &mut State, certificate: Certificate) {
+        debug!("Processing {:?}", certificate);
+        let round = certificate.round();
+
+        // Add the new certificate to the local storage.
+        state.insert(certificate);
+
+        // Flexible commit: after the support round reaches f+1 locally, either check
+        // immediately or, when enabled, wait for one all-to-all CoinVote phase to
+        // return f+1 distinct vote stake through the primary network.
+        if let Some((leader_round, support_round)) = self.flexible_commit_candidate(round) {
+            if self.flexible_commit_threshold_reached(state, support_round) {
+                if !self.support_broadcast {
+                    let _ = self
+                        .try_commit(state, round, leader_round, support_round)
+                        .await;
+                } else {
+                    self.ensure_coin_vote_requested(state, leader_round, support_round)
+                        .await;
+                    if self.coin_vote_ready(state, leader_round, support_round) {
+                        let _ = self
+                            .try_commit(state, round, leader_round, support_round)
+                            .await;
+                    }
+                }
+            }
+        }
+
+        // Regular commit retries the same leader/support pair. With support broadcast
+        // enabled it reuses the aggregation and cannot bypass an in-flight vote phase.
+        let step_length = self.committee.solid_step_length();
+        let wave_length = self.committee.solid_wave_length();
+        let Some(r) = round.checked_sub(step_length) else {
+            return;
+        };
+        if r % wave_length != 0 || r < 2 * wave_length {
+            return;
+        }
+        let leader_round = r - wave_length;
+        let support_round = r - step_length;
+        if !self.flexible_commit_threshold_reached(state, support_round) {
+            return;
+        }
+        if !self.support_broadcast {
+            let _ = self
+                .try_commit(state, round, leader_round, support_round)
+                .await;
+        } else {
+            self.ensure_coin_vote_requested(state, leader_round, support_round)
+                .await;
+            if self.coin_vote_ready(state, leader_round, support_round) {
+                let _ = self
+                    .try_commit(state, round, leader_round, support_round)
+                    .await;
+            }
+        }
+    }
+
+    async fn process_coin_vote(&mut self, state: &mut State, vote: CoinVote) {
+        if !self.support_broadcast {
+            return;
+        }
+        let leader_round = vote.leader_round;
+        let support_round = vote.support_round;
+        if !self.record_coin_vote(state, vote) {
+            return;
+        }
+        if !self.flexible_commit_threshold_reached(state, support_round) {
+            return;
+        }
+
+        // Votes may arrive before this node reaches its local support gate. Ensure
+        // the node still contributes its own signed all-to-all vote exactly once.
+        self.ensure_coin_vote_requested(state, leader_round, support_round)
+            .await;
+        let _ = self
+            .try_commit(state, support_round, leader_round, support_round)
+            .await;
+    }
+
     async fn run(&mut self) {
         // The consensus state (everything else is immutable).
         let mut state = State::new(self.genesis.clone());
 
-        // Listen to incoming certificates.
-        while let Some(certificate) = self.rx_primary.recv().await {
-            debug!("Processing {:?}", certificate);
-            let round = certificate.round();
-
-            // Add the new certificate to the local storage.
-            state.insert(certificate);
-
-            // Emit DAG visualization for extract_final_dag / extract_dag_out (full DAG per round).
-            // self.visualize_dag(&state, round);
-
-            // Flexible commit: once the support round has f+1 visible support locally,
-            // attempt commit immediately instead of waiting for the regular boundary.
-            if let Some((leader_round, support_round)) = self.flexible_commit_candidate(round) {
-                if self.flexible_commit_threshold_reached(&state, support_round) {
-                    let _ = self
-                        .try_commit(&mut state, round, leader_round, support_round)
-                        .await;
+        // Certificates and CoinVotes must progress independently; waiting for the
+        // vote threshold never blocks insertion of later DAG vertices.
+        loop {
+            tokio::select! {
+                Some(certificate) = self.rx_primary.recv() => {
+                    self.process_certificate(&mut state, certificate).await;
                 }
+                Some(vote) = self.rx_coin_votes.recv() => {
+                    self.process_coin_vote(&mut state, vote).await;
+                }
+                else => break,
             }
-
-            // Regular commit: retry commits on the protocol's scheduled boundary using
-            // the predetermined leader/support pair for the current solid-wave cadence.
-            let step_length = self.committee.solid_step_length();
-            let wave_length = self.committee.solid_wave_length();
-            let Some(r) = round.checked_sub(step_length) else {
-                continue;
-            };
-            if r % wave_length != 0 {
-                continue;
-            }
-            if r < 2 * wave_length {
-                continue;
-            }
-            let leader_round = r - wave_length;
-            let support_round = r - step_length;
-            let _ = self
-                .try_commit(&mut state, round, leader_round, support_round)
-                .await;
         }
     }
 

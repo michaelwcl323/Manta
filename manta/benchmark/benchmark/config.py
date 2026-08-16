@@ -183,6 +183,11 @@ class NodeParameters:
         if not all(isinstance(x, int) for x in inputs):
             raise ConfigError('Invalid parameters type')
 
+        support_broadcast = json.get('support_broadcast', False)
+        if not isinstance(support_broadcast, bool):
+            raise ConfigError('support_broadcast must be a boolean')
+        json['support_broadcast'] = support_broadcast
+
         self.json = json
 
     def print(self, filename):
