@@ -8,7 +8,7 @@ Run all validation commands below from the repository root.
 
 You need:
 
-- a CloudLab/APT account and project;
+- a CloudLab/APT account and project; (**If needed, please contact me to obtain a CloudLab account.**)
 - a downloaded Portal API token;
 - an SSH key registered with the portal; and
 - your CloudLab login username.
