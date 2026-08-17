@@ -18,12 +18,12 @@ variants:
     result_dir_11c: tusk_faulty
     node_params_11a:
       header_size: 1000
-      max_header_delay: 100
+      max_header_delay: 200
       gc_depth: 50
       sync_retry_delay: 1000
       sync_retry_nodes: 4
       batch_size: 500000
-      max_batch_delay: 50
+      max_batch_delay: 200
       # Paper Sec.5.4/6.1 (n=10,f=3): σ=1, κ=2, ref=cov=2f+1=7
       sigma: 1
       kappa: 2
@@ -49,12 +49,12 @@ variants:
     result_dir_11c: rider_faulty
     node_params_11a:
       header_size: 1000
-      max_header_delay: 100
+      max_header_delay: 200
       gc_depth: 50
       sync_retry_delay: 1000
       sync_retry_nodes: 4
       batch_size: 500000
-      max_batch_delay: 50
+      max_batch_delay: 200
       # Paper Sec.5.4/6.1: σ=1, κ=3, ref=cov=2f+1=7
       sigma: 1
       kappa: 3
@@ -91,12 +91,12 @@ variants:
       reference: 4
       coverage: 7
       allow_cross_step_weak_edges: true
-      enable_fast_coin: true
-      solid_commit_trigger_on_solid_step: true
+      enable_fast_coin: True
+      solid_commit_trigger_on_solid_step: True
       enable_commit_recheck: true
       enable_adaptive_intermediate_spill: true
-      adaptive_intermediate_spill_trigger_digests: 4
-      adaptive_intermediate_spill_cap_digests: 4
+      adaptive_intermediate_spill_trigger_digests: 2
+      adaptive_intermediate_spill_cap_digests: 1
       fast_coin_candidate_threshold: 4
       solid_candidate_threshold: 4
     node_params_11c:
@@ -128,12 +128,12 @@ variants:
     result_dir_11c: chitu_faulty
     node_params_11a:
       header_size: 1000
-      max_header_delay: 200
-      gc_depth: 500
+      max_header_delay: 50
+      gc_depth: 50
       sync_retry_delay: 1000
       sync_retry_nodes: 7
       batch_size: 500000
-      max_batch_delay: 200
+      max_batch_delay: 50
       # Matches origin/chitu fabfile; paper Sec.6.1: κ=3, ref=cov=2f+1=7
       sigma: 1
       kappa: 3
@@ -158,12 +158,12 @@ variants:
     result_dir_11c: mahi-mahi-faulty
     node_params_11a:
       header_size: 1000
-      max_header_delay: 100
+      max_header_delay: 200
       gc_depth: 50
       sync_retry_delay: 1000
       sync_retry_nodes: 4
       batch_size: 500000
-      max_batch_delay: 50
+      max_batch_delay: 200
       # Matches origin/mahi-mahi fabfile; paper Sec.6.1: κ=3, ref=cov=2f+1=7
       sigma: 1
       kappa: 3
