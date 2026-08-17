@@ -37,6 +37,7 @@ pub fn mock_committee() -> Committee {
         kappa: 2,
         reference: 3,
         coverage: 3,
+        candidate_count: 1,
     }
 }
 

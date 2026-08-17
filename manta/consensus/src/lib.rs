@@ -232,12 +232,51 @@ impl Consensus {
         Some((support_round + step_length - wave_length, support_round))
     }
 
-    fn flexible_commit_threshold_reached(&self, state: &State, support_round: Round) -> bool {
-        state
-            .dag
-            .get(&support_round)
-            .map(|round_map| round_map.len() >= self.committee.validity_threshold() as usize)
-            .unwrap_or(false)
+    fn candidate_threshold(&self) -> Stake {
+        self.committee.candidate_count as Stake
+    }
+
+    fn supported_candidate_count(
+        &self,
+        state: &State,
+        leader_round: Round,
+        support_round: Round,
+    ) -> Stake {
+        let validity_threshold = self.committee.validity_threshold();
+        let Some(leader_round_map) = state.dag.get(&leader_round) else {
+            return 0;
+        };
+        let Some(support_round_map) = state.dag.get(&support_round) else {
+            return 0;
+        };
+
+        leader_round_map
+            .values()
+            .filter(|(leader_digest, leader)| {
+                let leader_header_id = &leader.header.id;
+                let support_stake: Stake = support_round_map
+                    .values()
+                    .filter(|(_, certificate)| {
+                        let vertices = &certificate.header.solid_wave_vertices;
+                        vertices.contains(leader_header_id) || vertices.contains(leader_digest)
+                    })
+                    .map(|(_, certificate)| self.committee.stake(&certificate.origin()))
+                    .sum();
+                support_stake >= validity_threshold
+            })
+            .count() as Stake
+    }
+
+    fn flexible_commit_threshold_reached(
+        &self,
+        state: &State,
+        leader_round: Round,
+        support_round: Round,
+    ) -> bool {
+        let supported_candidate_count =
+            self.supported_candidate_count(state, leader_round, support_round);
+
+        supported_candidate_count >= self.candidate_threshold()
     }
 
     fn coin_vote_ready(
@@ -602,7 +641,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
         // immediately or, when enabled, wait for one all-to-all CoinVote phase to
         // return f+1 distinct vote stake through the primary network.
         if let Some((leader_round, support_round)) = self.flexible_commit_candidate(round) {
-            if self.flexible_commit_threshold_reached(state, support_round) {
+            if self.flexible_commit_threshold_reached(state, leader_round, support_round) {
                 if !self.support_broadcast {
                     let _ = self
                         .try_commit(state, round, leader_round, support_round)
@@ -631,7 +670,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
         }
         let leader_round = r - wave_length;
         let support_round = r - step_length;
-        if !self.flexible_commit_threshold_reached(state, support_round) {
+        if !self.flexible_commit_threshold_reached(state, leader_round, support_round) {
             return;
         }
         if !self.support_broadcast {
@@ -658,7 +697,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
         if !self.record_coin_vote(state, vote) {
             return;
         }
-        if !self.flexible_commit_threshold_reached(state, support_round) {
+        if !self.flexible_commit_threshold_reached(state, leader_round, support_round) {
             return;
         }
 

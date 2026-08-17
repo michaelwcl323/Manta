@@ -153,6 +153,8 @@ pub struct Committee {
     pub reference: usize,
     /// The coverage parameter for the solid step.
     pub coverage: usize,
+    /// The minimum candidate support count required by consensus.
+    pub candidate_count: usize,
 }
 
 impl Import for Committee {}

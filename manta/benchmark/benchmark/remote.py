@@ -224,6 +224,7 @@ class Bench:
             jp.get('kappa', 2),
             jp.get('reference', 4),
             jp.get('coverage', 7),
+            jp.get('candidate_count', jp.get('reference', 4)),
         )
         committee.print(PathMaker.committee_file())
 

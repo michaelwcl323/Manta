@@ -1057,6 +1057,7 @@ class CloudLabBench:
         kappa = node_parameters.json.get('kappa', 2)
         reference = node_parameters.json.get('reference', 4)
         coverage = node_parameters.json.get('coverage', 7)
+        candidate_count = node_parameters.json.get('candidate_count', reference)
         committee = Committee(
             addresses,
             self.settings.base_port,
@@ -1064,6 +1065,7 @@ class CloudLabBench:
             kappa,
             reference,
             coverage,
+            candidate_count,
         )
         committee.print(PathMaker.committee_file())
         

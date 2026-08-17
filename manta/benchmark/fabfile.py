@@ -54,6 +54,7 @@ def local(ctx, debug=False):
         'kappa': 2,
         'reference': 4,
         'coverage': 7,
+        'candidate_count': 4,
         's': 0.99
     }
     try:
@@ -167,6 +168,7 @@ def remote(ctx, debug=False):
         'kappa': 2,
         'reference': 17,
         'coverage': 33,
+        'candidate_count': 17,
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug)
@@ -310,6 +312,7 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=2):
         'kappa': 2,
         'reference': 17,
         'coverage': 33,
+        'candidate_count': 17
     }
     try:
         CloudLabBench(ctx).run(bench_params, node_params, debug)

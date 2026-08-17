@@ -41,7 +41,8 @@ class Committee:
         }
     '''
 
-    def __init__(self, addresses, base_port, sigma, kappa, reference, coverage):
+    def __init__(self, addresses, base_port, sigma, kappa, reference, coverage,
+                 candidate_count):
         ''' The `addresses` field looks as follows:
             { 
                 "name": ["host", "host", ...],
@@ -58,6 +59,7 @@ class Committee:
         )
         assert len({len(x) for x in addresses.values()}) == 1
         assert isinstance(base_port, int) and base_port > 1024
+        assert isinstance(candidate_count, int) and candidate_count >= 0
 
         port = base_port
         self.json = {
@@ -66,6 +68,7 @@ class Committee:
             'kappa': kappa,
             'reference': reference,
             'coverage': coverage,
+            'candidate_count': candidate_count,
         }
         for name, hosts in addresses.items():
             host = hosts.pop(0)
@@ -157,13 +160,15 @@ class Committee:
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, port, workers, sigma, kappa, reference, coverage):
+    def __init__(self, names, port, workers, sigma, kappa, reference, coverage,
+                 candidate_count):
         assert isinstance(names, list)
         assert all(isinstance(x, str) for x in names)
         assert isinstance(port, int)
         assert isinstance(workers, int) and workers > 0
         addresses = OrderedDict((x, ['127.0.0.1']*(1+workers)) for x in names)
-        super().__init__(addresses, port, sigma, kappa, reference, coverage)
+        super().__init__(addresses, port, sigma, kappa, reference, coverage,
+                         candidate_count)
 
 
 class NodeParameters:
