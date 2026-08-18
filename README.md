@@ -42,16 +42,6 @@ Run `fab install` and `fab remote` from the selected protocol's benchmark direct
 
 ### 2.1 Protocol sources
 
-The directories have the following source branches:
-
-| Protocol | Git branch |
-|---|---|
-| Manta | `experiment3` |
-| Chitu | `experiment3` |
-| Mahi-Mahi | `mahi-mahi` (imported into `mahi-mahi/`) |
-| Tusk | `tusk` (imported into `tusk/`) |
-| DAG-Rider | `tusk` (uses `tusk/`) |
-
 DAG-Rider reuses the implementation in `tusk/` with a different protocol configuration; it does not have a separate source directory.
 
 ## 3. AWS Remote Environment Deployment
@@ -261,8 +251,6 @@ python3 plot_mean_tps_latency.py
 ```text
 results/regenerate_graphs/50nodes_protocol_comparison.pdf
 ```
-
-> TODO: Add the expected console output and the success criteria for graph regeneration.
 
 ## 5. Reproducing Figure 11(b)
 
