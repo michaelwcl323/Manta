@@ -9,6 +9,7 @@ This experiment uses scalability-oriented variants of Manta and Chitu. This sect
 ### 1.1 Manta Implementation
 
 The large-scale evaluation uses a simplified implementation of **Manta** that enables only the flexible-coin commit path; accordingly, `σ` can be simplified to `1`.
+For more details, please refer to [Manta Scalable Implementation](https://github.com/michaelwcl323/manta-nsdi27/blob/experiment3/manta/README.md).
 
 ### 1.2 Chitu Implementation
 
