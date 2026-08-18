@@ -1,0 +1,42 @@
+{
+  "regions": [
+    {
+      "name": "eu-central-1",
+      "instance_count": 6
+    },
+    {
+      "name": "us-east-2",
+      "instance_count": 3
+    },
+    {
+      "name": "ap-east-1",
+      "instance_count": 1
+    }
+  ],
+  "ssh": {
+    "public_key": "~/.ssh/cloudlab_michael9.pub",
+    "key_name": "cloudlab_michael9",
+    "private_key_passphrase": "michael"
+  },
+  "benchmark": {
+    "base_port": 5000,
+    "repo": {
+      "name": "manta-nsdi27",
+      "url": "https://github.com/michaelwcl323/manta-nsdi27.git",
+      "branch": "experiment3",
+      "subdir": "manta"
+    }
+  },
+  "security_group": {
+    "name": "manta-experiment",
+    "description": "Security group for the MANTA AWS experiment",
+    "output_file": "aws_deployment/security_groups.txt"
+  },
+  "instances": {
+    "type": "t3.2xlarge",
+    "ami_parameter": "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+    "output_file": "aws_deployment/instances.txt",
+    "nodes_file": "aws_deployment/nodes.txt",
+    "public_ips_file": "aws_deployment/public_ips.txt"
+  }
+}

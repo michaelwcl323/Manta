@@ -1,4 +1,5 @@
 import boto3
+from pathlib import Path
 from botocore.exceptions import ClientError, NoCredentialsError
 from collections import defaultdict, OrderedDict
 from time import sleep
@@ -18,6 +19,7 @@ class AWSError(Exception):
 class InstanceManager:
     INSTANCE_NAME = 'dag-node'
     SECURITY_GROUP_NAME = 'dag'
+    PROTOCOL_SUBDIR = 'manta'
 
     def __init__(self, settings):
         assert isinstance(settings, Settings)
@@ -27,9 +29,13 @@ class InstanceManager:
             self.clients[region] = boto3.client('ec2', region_name=region)
 
     @classmethod
-    def make(cls, settings_file='settings.json'):
+    def make(cls, settings_file=None):
+        if settings_file is None:
+            settings_file = Path(__file__).resolve().parents[3] / 'aws_deployment' / 'config.json'
         try:
-            return cls(Settings.load(settings_file))
+            return cls(Settings.load(
+                str(settings_file), repo_subdir=cls.PROTOCOL_SUBDIR
+            ))
         except SettingsError as e:
             raise BenchError('Failed to load settings', e)
 
@@ -227,8 +233,8 @@ class InstanceManager:
             return [x for y in ips.values() for x in y] if flat else ips
         except NoCredentialsError as e:
             raise BenchError(
-                'AWS credentials not configured. Add a "hosts" field in settings.json '
-                '(list of IP strings, or region -> list of IPs), or configure credentials / IAM role.'
+                'AWS credentials not configured and no static hosts were loaded '
+                'from aws_deployment/nodes.txt.'
             ) from e
         except ClientError as e:
             raise BenchError('Failed to gather instances IPs', AWSError(e))

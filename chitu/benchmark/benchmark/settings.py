@@ -1,58 +1,10 @@
-# Copyright(C) Facebook, Inc. and its affiliates.
-from json import load, JSONDecodeError
+"""Shared AWS benchmark settings with the Chitu protocol adapter."""
+import importlib.util
+from pathlib import Path
 
-
-class SettingsError(Exception):
-    pass
-
-
-class Settings:
-    def __init__(self, key_name, key_path, base_port, repo_name, repo_url,
-                 branch, instance_type, aws_regions):
-        inputs_str = [
-            key_name, key_path, repo_name, repo_url, branch, instance_type
-        ]
-        if isinstance(aws_regions, list):
-            regions = aws_regions
-        else:
-            regions = [aws_regions]
-        inputs_str += regions
-        ok = all(isinstance(x, str) for x in inputs_str)
-        ok &= isinstance(base_port, int)
-        ok &= len(regions) > 0
-        if not ok:
-            raise SettingsError('Invalid settings types')
-
-        self.key_name = key_name
-        self.key_path = key_path
-
-        self.base_port = base_port
-
-        self.repo_name = repo_name
-        self.repo_url = repo_url
-        self.branch = branch
-
-        self.instance_type = instance_type
-        self.aws_regions = regions
-
-    @classmethod
-    def load(cls, filename):
-        try:
-            with open(filename, 'r') as f:
-                data = load(f)
-
-            return cls(
-                data['key']['name'],
-                data['key']['path'],
-                data['port'],
-                data['repo']['name'],
-                data['repo']['url'],
-                data['repo']['branch'],
-                data['instances']['type'],
-                data['instances']['regions'],
-            )
-        except (OSError, JSONDecodeError) as e:
-            raise SettingsError(str(e))
-
-        except KeyError as e:
-            raise SettingsError(f'Malformed settings: missing key {e}')
+_PATH = Path(__file__).resolve().parents[3] / 'manta/benchmark/benchmark/settings.py'
+_SPEC = importlib.util.spec_from_file_location('_shared_aws_settings', _PATH)
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+Settings = _MODULE.Settings
+SettingsError = _MODULE.SettingsError

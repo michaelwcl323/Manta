@@ -1,0 +1,379 @@
+from fabric import task
+from invoke import Exit
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from aws_deployment.experiment_config import load_parameters
+
+from benchmark.local import LocalBench
+from benchmark.logs import ParseError, LogParser
+from benchmark.utils import Print
+from benchmark.cloudlab_instance import CloudLabInstanceManager
+from benchmark.cloudlab_remote import CloudLabBench
+from benchmark.cloudlab_wan import CloudLabWan
+from benchmark.cloudlab_lan import CloudLabLan
+from benchmark.utils import BenchError
+
+# Import AWS remote benchmark module only when needed (lazy import).
+try:
+    from benchmark.remote import Bench
+except ImportError:
+    Bench = None
+
+# Import AWS instance module only when needed (lazy import - CloudLab doesn't need it)
+try:
+    from benchmark.instance import InstanceManager
+except ImportError:
+    InstanceManager = None
+
+# Import plot module only when needed (lazy import)
+try:
+    from benchmark.plot import Ploter, PlotError
+except ImportError:
+    Ploter = None
+    PlotError = None
+
+
+@task
+def local(ctx, debug=True):
+    ''' Run benchmarks on localhost '''
+    bench_params = {
+        'faults': 0,
+        'nodes': 10,
+        'workers': 1,
+        'rate_type': 'balanced',
+        'rate': 80000,
+        'tx_size': 512,
+        'duration': 120,
+    }
+    node_params = {
+        'header_size': 1000,  # bytes
+        'max_header_delay': 200,  # ms
+        'gc_depth': 50,  # rounds
+        'sync_retry_delay': 1000,  # ms 
+        'sync_retry_nodes': 7,  # number of nodes
+        'batch_size': 500_000,  # bytes
+        'max_batch_delay': 200,  # ms
+        'sigma': 1,
+        'kappa': 3,
+        'reference': 7,
+        'coverage': 7,
+        's': 0.99
+    }
+    try:
+        ret = LocalBench(bench_params, node_params).run(debug)
+        print(ret.result())
+    except BenchError as e:
+        Print.error(e)
+        raise Exit(code=1)
+
+
+@task
+def create(ctx, nodes=2):
+    ''' Create a testbed'''
+    if InstanceManager is None:
+        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        return
+    try:
+        InstanceManager.make().create_instances(nodes)
+    except BenchError as e:
+        Print.error(e)
+        raise Exit(code=1)
+
+
+@task
+def destroy(ctx):
+    ''' Destroy the testbed '''
+    if InstanceManager is None:
+        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        return
+    try:
+        InstanceManager.make().terminate_instances()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def start(ctx, max=2):
+    ''' Start at most `max` machines per data center '''
+    if InstanceManager is None:
+        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        return
+    try:
+        InstanceManager.make().start_instances(max)
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def stop(ctx):
+    ''' Stop all machines '''
+    if InstanceManager is None:
+        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        return
+    try:
+        InstanceManager.make().stop_instances()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def info(ctx):
+    ''' Display connect information about all the available machines (AWS) '''
+    if InstanceManager is None:
+        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        return
+    try:
+        InstanceManager.make().print_info()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def install(ctx):
+    ''' Install the codebase on all machines '''
+    if Bench is None:
+        raise Exit('AWS benchmark support is not available', code=1)
+    try:
+        Bench(ctx).install()
+    except BenchError as e:
+        Print.error(e)
+        raise Exit(code=1)
+
+
+@task
+def remote(ctx, debug=False, sigma=1, kappa=3):
+    ''' Run benchmarks on AWS '''
+    if Bench is None:
+        raise Exit('AWS benchmark support is not available', code=1)
+    bench_params = {
+        'design_tag': 'mahi_data_forpaper',
+        'network_tag': 'no-delay',
+        'faults': 3,
+        'nodes': [10],
+        'workers': 1,
+        'collocate': True,
+        'rate_type': 'balanced',
+        'rate': [10_000, 110_000],
+        'tx_size': 512,
+        'duration': 300,
+        'runs': 2,
+    }
+    node_params = {
+        'header_size': 1_000,  # bytes
+        'max_header_delay': 200,  # ms
+        'gc_depth': 50,  # rounds
+        'sync_retry_delay': 10_000,  # ms
+        'sync_retry_nodes': 3,  # number of nodes
+        'batch_size': 500_000,  # bytes
+        'max_batch_delay': 200,  # ms
+        'sigma': sigma,
+        'kappa': kappa,
+        'reference': 7,
+        'coverage': 7,
+    }
+    bench_params, node_params = load_parameters(
+        'mahi-mahi', bench_params, node_params
+    )
+    try:
+        Bench(ctx).run(bench_params, node_params, debug)
+    except BenchError as e:
+        Print.error(e)
+        raise Exit(code=1)
+
+
+@task
+def plot(ctx):
+    ''' Plot performance using the logs generated by "fab remote" '''
+    if Ploter is None:
+        Print.error('matplotlib is not installed. Please install it: pip install matplotlib')
+        return
+    plot_params = {
+        'faults': [0],
+        'nodes': [10, 20, 50],
+        'workers': [1],
+        'collocate': True,
+        'tx_size': 512,
+        'max_latency': [3_500, 4_500]
+    }
+    try:
+        Ploter.plot(plot_params)
+    except PlotError as e:
+        Print.error(BenchError('Failed to plot performance', e))
+
+
+@task
+def kill(ctx):
+    ''' Stop execution on all machines (AWS) '''
+    if Bench is None:
+        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
+        return
+    try:
+        Bench(ctx).kill()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def logs(ctx):
+    ''' Print a summary of the logs '''
+    try:
+        print(LogParser.process('./logs', faults='?').result())
+    except ParseError as e:
+        Print.error(BenchError('Failed to parse logs', e))
+
+
+# CloudLab tasks (same as experiment1 / experiment2)
+@task
+def cloudlab_info(ctx):
+    ''' Display connect information about all CloudLab nodes '''
+    try:
+        CloudLabInstanceManager.make().print_info()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_test(ctx):
+    ''' Test SSH connections to all CloudLab nodes '''
+    try:
+        CloudLabBench(ctx).test_connections()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_install(ctx):
+    ''' Install the codebase on all CloudLab nodes '''
+    try:
+        CloudLabBench(ctx).install()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_wan(ctx, action='setup'):
+    ''' Emulate WAN RTT between sites (tc netem). action=setup|clear '''
+    try:
+        w = CloudLabWan()
+        act = (action or 'setup').lower()
+        if act == 'setup':
+            w.setup()
+        elif act == 'clear':
+            w.clear()
+        else:
+            Print.error('cloudlab_wan: use action=setup or action=clear')
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_lan(ctx, prefix_len=24, cross_subnet_via='', action='setup'):
+    ''' Cross-subnet static routes on CloudLab nodes. action=setup|clear|verify. Optional cross_subnet_via=GATEWAY_IP '''
+    try:
+        via = cross_subnet_via.strip() or None
+        plen = int(prefix_len)
+        lan = CloudLabLan()
+        act = (action or 'setup').lower()
+        if act == 'clear':
+            lan.clear(prefix_len=plen, cross_subnet_via=via)
+        elif act == 'verify':
+            ok = lan.verify(prefix_len=plen)
+            if not ok:
+                raise BenchError('cloudlab_lan verify reported failures', RuntimeError('verify'))
+        elif act == 'setup':
+            lan.setup(prefix_len=plen, cross_subnet_via=via)
+        else:
+            Print.error('cloudlab_lan: use action=setup, clear, or verify')
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_remote(ctx, debug=False, sigma=1, kappa=3):
+    ''' Run benchmarks on CloudLab '''
+    bench_params = {
+        'design_tag': 'mahi_data_forpaper',
+        'network_tag': 'no-delay',
+        'faults': 0,
+        'nodes': [10],
+        'workers': 1,
+        'collocate': True,
+        'rate_type': 'balanced',
+        'rate': [80000,100000,120000,140000],
+        'tx_size': 512,
+        'duration': 120,
+        'runs': 2,
+    }
+    node_params = {
+        'header_size': 1_000,  # bytes
+        'max_header_delay': 100,  # ms
+        'gc_depth': 50,  # rounds
+        'sync_retry_delay': 1000,  # ms
+        'sync_retry_nodes': 4,  # number of nodes
+        'batch_size': 500_000,  # bytes
+        'max_batch_delay': 50,  # ms
+        'sigma': sigma,
+        'kappa': kappa,
+        'reference': 7,
+        'coverage': 7,
+        # 's': 0.99,
+    }
+    try:
+        CloudLabBench(ctx).run(bench_params, node_params, debug)
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_status(ctx):
+    ''' Check if benchmark processes are running on CloudLab nodes '''
+    try:
+        CloudLabBench(ctx).status()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_debug(ctx):
+    ''' Debug: Check tmux sessions and capture error messages from CloudLab nodes '''
+    try:
+        CloudLabBench(ctx).debug_sessions()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_kill(ctx):
+    ''' Stop execution on all CloudLab nodes '''
+    try:
+        CloudLabBench(ctx).kill()
+    except BenchError as e:
+        Print.error(e)
+
+
+@task
+def cloudlab_download_primary_logs(ctx, nodes='0,1,2,3'):
+    ''' Download primary logs from specified CloudLab nodes (default: 0,1,2,3) '''
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+    from download_logs import download_primary_logs
+
+    try:
+        node_indices = [int(x.strip()) for x in nodes.split(',')]
+        Print.info(f'Downloading primary logs from nodes: {node_indices}')
+        success = download_primary_logs('cloudlab_settings.json', node_indices)
+        if success:
+            Print.info('✓ Successfully downloaded primary logs')
+        else:
+            Print.error('✗ Failed to download some primary logs')
+        return success
+    except ValueError as e:
+        Print.error(f'Invalid node indices format: {nodes}. Use comma-separated numbers like "0,1,2,3"')
+        return False
+    except Exception as e:
+        Print.error(f'Failed to download primary logs: {e}')
+        return False

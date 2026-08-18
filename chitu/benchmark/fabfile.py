@@ -1,5 +1,11 @@
 # Copyright(C) Facebook, Inc. and its affiliates.
 from fabric import task
+from invoke import Exit
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from aws_deployment.experiment_config import load_parameters
 
 from benchmark.local import LocalBench
 from benchmark.logs import ParseError, LogParser
@@ -118,6 +124,7 @@ def local(
             Print.info(f'Per-run artifacts saved to: {run_dir}')
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
@@ -130,6 +137,7 @@ def create(ctx, nodes=2):
         InstanceManager.make().create_instances(nodes)
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
@@ -184,25 +192,27 @@ def info(ctx):
 def install(ctx):
     ''' Install the codebase on all machines '''
     if Bench is None:
-        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
-        return
+        raise Exit('AWS benchmark support is not available', code=1)
     try:
         Bench(ctx).install()
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
-def remote(ctx, debug=False):
+def remote(ctx, debug=False, sigma=1, kappa=3, enable_wait=True):
     ''' Run benchmarks on AWS '''
     if Bench is None:
-        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
-        return
+        raise Exit('AWS benchmark support is not available', code=1)
     bench_params = {
         'faults': 3,
         'nodes': [10],
         'workers': 1,
         'collocate': True,
+        'rate_type': 'balanced',
+        'network_tag': 'chitu-ack',
+        'rtt_tag': 'no-delay',
         'rate': [10_000, 110_000],
         'tx_size': 512,
         'duration': 300,
@@ -216,14 +226,21 @@ def remote(ctx, debug=False):
         'sync_retry_nodes': 3,  # number of nodes
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 200,  # ms
-        'solid_step_length': 2,
-        'solid_step_number': 1,
-        'reference': 3,
+        'sigma': sigma,
+        'kappa': kappa,
+        'reference': 7,
+        'coverage': 7,
+        's': 0.99,
+        'enable_wait': _as_bool(enable_wait),
     }
+    bench_params, node_params = load_parameters(
+        'chitu', bench_params, node_params
+    )
     try:
         Bench(ctx).run(bench_params, node_params, debug)
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
@@ -336,8 +353,8 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=3, enable_wait=True):
         'sync_retry_nodes': 7,  # number of nodes
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 200,  # ms
-        'sigma': 1,
-        'kappa': 3,
+        'sigma': sigma,
+        'kappa': kappa,
         'reference': 33,
         'coverage': 33,
         's': 0.99,

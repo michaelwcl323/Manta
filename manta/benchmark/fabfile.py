@@ -1,4 +1,10 @@
 from fabric import task
+from invoke import Exit
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from aws_deployment.experiment_config import load_parameters
 
 from benchmark.local import LocalBench
 from benchmark.logs import ParseError, LogParser
@@ -12,14 +18,18 @@ from benchmark.utils import BenchError
 # Import AWS remote benchmark module only when needed (lazy import).
 try:
     from benchmark.remote import Bench
-except ImportError:
+    BENCH_IMPORT_ERROR = None
+except ImportError as error:
     Bench = None
+    BENCH_IMPORT_ERROR = error
 
 # Import AWS instance module only when needed (lazy import - CloudLab doesn't need it)
 try:
     from benchmark.instance import InstanceManager
-except ImportError:
+    INSTANCE_IMPORT_ERROR = None
+except ImportError as error:
     InstanceManager = None
+    INSTANCE_IMPORT_ERROR = error
 
 # Import plot module only when needed (lazy import)
 try:
@@ -62,25 +72,27 @@ def local(ctx, debug=False):
         print(ret.result())
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
 def create(ctx, nodes=2):
     ''' Create a testbed'''
     if InstanceManager is None:
-        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        Print.error(BenchError('InstanceManager is not available', INSTANCE_IMPORT_ERROR))
         return
     try:
         InstanceManager.make().create_instances(nodes)
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
 def destroy(ctx):
     ''' Destroy the testbed '''
     if InstanceManager is None:
-        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        Print.error(BenchError('InstanceManager is not available', INSTANCE_IMPORT_ERROR))
         return
     try:
         InstanceManager.make().terminate_instances()
@@ -92,7 +104,7 @@ def destroy(ctx):
 def start(ctx, max=2):
     ''' Start at most `max` machines per data center '''
     if InstanceManager is None:
-        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        Print.error(BenchError('InstanceManager is not available', INSTANCE_IMPORT_ERROR))
         return
     try:
         InstanceManager.make().start_instances(max)
@@ -104,7 +116,7 @@ def start(ctx, max=2):
 def stop(ctx):
     ''' Stop all machines '''
     if InstanceManager is None:
-        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        Print.error(BenchError('InstanceManager is not available', INSTANCE_IMPORT_ERROR))
         return
     try:
         InstanceManager.make().stop_instances()
@@ -116,7 +128,7 @@ def stop(ctx):
 def info(ctx):
     ''' Display connect information about all the available machines (AWS) '''
     if InstanceManager is None:
-        Print.error('InstanceManager is not available (boto3 may not be installed)')
+        Print.error(BenchError('InstanceManager is not available', INSTANCE_IMPORT_ERROR))
         return
     try:
         InstanceManager.make().print_info()
@@ -128,52 +140,61 @@ def info(ctx):
 def install(ctx):
     ''' Install the codebase on all machines '''
     if Bench is None:
-        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
-        return
+        Print.error(BenchError(
+            'AWS benchmark support is not available', BENCH_IMPORT_ERROR
+        ))
+        raise Exit(code=1)
     try:
         Bench(ctx).install()
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
-def remote(ctx, debug=False):
+def remote(ctx, debug=False, sigma=1, kappa=2):
     ''' Run benchmarks on AWS '''
     if Bench is None:
-        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
-        return
+        Print.error(BenchError(
+            'AWS benchmark support is not available', BENCH_IMPORT_ERROR
+        ))
+        raise Exit(code=1)
     bench_params = {
         'faults': 0,
-        'nodes': [50],
+        'nodes': [10],
         'workers': 1,
         'collocate': True,
         'rate_type': 'balanced',
         'design_tag': '',
         'network_tag': '',
-        'rate': [120000,160000,200000],
+        'rate': [100000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 2,
+        'runs': 1,
     }
     node_params = {
         'header_size': 1_000,  # bytes
         'max_header_delay': 50,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 1000,  # ms
-        'sync_retry_nodes': 33,  # number of nodes
+        'sync_retry_nodes': 7,  # number of nodes
         'batch_size': 500000,  # bytes
         'max_batch_delay': 50,  # ms
         'support_broadcast': True,
-        'sigma': 1,
-        'kappa': 2,
-        'reference': 17,
-        'coverage': 33,
-        'candidate_count': 17,
+        'sigma': sigma,
+        'kappa': kappa,
+        'reference': 4,
+        'coverage': 7,
+        'candidate_count': 4,
     }
+    bench_params, node_params = load_parameters(
+        'manta', bench_params, node_params
+    )
     try:
         Bench(ctx).run(bench_params, node_params, debug)
     except BenchError as e:
         Print.error(e)
+        raise Exit(code=1)
 
 
 @task
@@ -200,7 +221,9 @@ def plot(ctx):
 def kill(ctx):
     ''' Stop execution on all machines (AWS) '''
     if Bench is None:
-        Print.error('AWS benchmark support is not available (remote dependencies may not be installed)')
+        Print.error(BenchError(
+            'AWS benchmark support is not available', BENCH_IMPORT_ERROR
+        ))
         return
     try:
         Bench(ctx).kill()
@@ -308,8 +331,8 @@ def cloudlab_remote(ctx, debug=False, sigma=1, kappa=2):
         'batch_size': 500_000,  # bytes
         'max_batch_delay': 50,  # ms
         'support_broadcast': True,
-        'sigma': 1,
-        'kappa': 2,
+        'sigma': sigma,
+        'kappa': kappa,
         'reference': 17,
         'coverage': 33,
         'candidate_count': 17

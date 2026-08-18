@@ -1,0 +1,93 @@
+protocols_enabled:
+  - manta
+  - tusk
+  - dag-rider
+  - mahi-mahi
+  - chitu
+
+benchmark:
+  faults: 0
+  nodes: [10]
+  workers: 1
+  collocate: true
+  rate: [80000]
+  tx_size: 512
+  duration: 120
+  runs: 1
+
+protocols:
+  manta:
+    branch: manta
+    node:
+      header_size: 1000
+      max_header_delay: 50
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 1
+      kappa: 2
+      reference: 4
+      coverage: 7
+      candidate_count: 4
+
+  tusk:
+    branch: tusk
+    node:
+      header_size: 1000
+      max_header_delay: 50
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 1
+      kappa: 2
+      reference: 7
+      coverage: 7
+
+  dag-rider:
+    branch: tusk
+    node:
+      header_size: 1000
+      max_header_delay: 50
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
+
+  mahi-mahi:
+    branch: mahi-mahi
+    node:
+      header_size: 1000
+      max_header_delay: 100
+      gc_depth: 50
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 50
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
+
+  chitu:
+    branch: chitu
+    node:
+      header_size: 1000
+      max_header_delay: 200
+      gc_depth: 5000
+      sync_retry_delay: 1000
+      sync_retry_nodes: 7
+      batch_size: 500000
+      max_batch_delay: 200
+      sigma: 1
+      kappa: 3
+      reference: 7
+      coverage: 7
