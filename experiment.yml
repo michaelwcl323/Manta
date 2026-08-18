@@ -7,60 +7,71 @@ protocols_enabled:
 
 benchmark:
   faults: 0
-  nodes: [10]
+  nodes: [50]
   workers: 1
   collocate: true
-  rate: [80000]
+  rate: [80000, 120000, 160000, 200000]
   tx_size: 512
   duration: 120
-  runs: 1
+  runs: 2
 
 protocols:
   manta:
     branch: manta
+    benchmark:
+      design_tag: tusk-m_experiment3
+      network_tag: geo
+      rate: [80000, 120000, 160000, 200000, 240000]
     node:
       header_size: 1000
       max_header_delay: 50
       gc_depth: 50
       sync_retry_delay: 1000
-      sync_retry_nodes: 7
+      sync_retry_nodes: 33
       batch_size: 500000
       max_batch_delay: 50
+      support_broadcast: true
       sigma: 1
       kappa: 2
-      reference: 4
-      coverage: 7
-      candidate_count: 4
+      reference: 17
+      coverage: 33
+      candidate_count: 17
 
   tusk:
     branch: tusk
+    benchmark:
+      design_tag: tusk_experiment3_hyper
+      network_tag: geo
     node:
       header_size: 1000
       max_header_delay: 50
       gc_depth: 50
       sync_retry_delay: 1000
-      sync_retry_nodes: 7
+      sync_retry_nodes: 33
       batch_size: 500000
       max_batch_delay: 50
       sigma: 1
       kappa: 2
-      reference: 7
-      coverage: 7
+      reference: 33
+      coverage: 33
 
   dag-rider:
     branch: tusk
+    benchmark:
+      design_tag: rider_experiment3_hyper
+      network_tag: geo
     node:
       header_size: 1000
       max_header_delay: 50
       gc_depth: 50
       sync_retry_delay: 1000
-      sync_retry_nodes: 7
+      sync_retry_nodes: 33
       batch_size: 500000
       max_batch_delay: 50
       sigma: 1
       kappa: 3
-      reference: 7
-      coverage: 7
+      reference: 33
+      coverage: 33
 
   mahi-mahi:
     branch: mahi-mahi
@@ -69,13 +80,13 @@ protocols:
       max_header_delay: 100
       gc_depth: 50
       sync_retry_delay: 1000
-      sync_retry_nodes: 7
+      sync_retry_nodes: 33
       batch_size: 500000
       max_batch_delay: 50
       sigma: 1
       kappa: 3
-      reference: 7
-      coverage: 7
+      reference: 33
+      coverage: 33
 
   chitu:
     branch: chitu
@@ -89,5 +100,5 @@ protocols:
       max_batch_delay: 200
       sigma: 1
       kappa: 3
-      reference: 7
-      coverage: 7
+      reference: 33
+      coverage: 33

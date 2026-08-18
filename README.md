@@ -16,7 +16,7 @@ The large-scale evaluation uses an optimized implementation of **Chitu** that pr
 
 ## 2. Repository Structure
 
-The `experiment3` branch contains each Figure 11(b) implementation in a separate directory. Mahi-Mahi and Tusk are imported from their corresponding protocol branches so the experiment can be operated from one working tree:
+The experiment3 branch contains the implementations used for Figure 11(b), with each protocol organized in a separate directory. Mahi-Mahi and Tusk are imported from their corresponding protocol branches. For Mahi-Mahi and Tusk, we add process-level parallelism across client, worker, and primary processes to support large-scale experiments. This organization allows all Figure 11(b) experiments to be run from a single working tree.:
 
 ```text
 experiment3
