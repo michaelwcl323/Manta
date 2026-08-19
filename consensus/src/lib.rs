@@ -252,7 +252,7 @@ impl Consensus {
             state.insert(certificate);
 
             // Emit DAG visualization for extract_final_dag / extract_dag_out (full DAG per round).
-            self.visualize_dag(&state, round);
+            // self.visualize_dag(&state, round);
 
             let mut cleared = Vec::new();
             pending_commit_checks.retain(|pending| {
@@ -501,10 +501,7 @@ impl Consensus {
         round: Round,
         state: &State,
     ) -> Option<PendingCommitCheck> {
-        if self.committee.sigma == 1 && self.committee.kappa == 1 {
-            return None;
-        }
-
+        let step_length = self.committee.solid_step_length();
         if !self
             .committee
             .is_first_round_of_second_or_later_solid_wave(round)
@@ -519,7 +516,7 @@ impl Consensus {
             prev_wave_start,
             prev_wave_end,
         )?;
-        let leader_round = prev_wave_start;
+        let leader_round = support_round.saturating_sub(step_length);
         if leader_round < 1 {
             return None;
         }
@@ -530,36 +527,6 @@ impl Consensus {
             CommitCheckPath::Solid,
             leader_round,
             support_round,
-            false,
-            state,
-        )
-    }
-
-    fn sigma_one_immediate_pending_commit_check_for_round(
-        &self,
-        round: Round,
-        state: &State,
-    ) -> Option<PendingCommitCheck> {
-        if self.committee.sigma != 1 || self.committee.kappa != 1 || round <= 1 {
-            return None;
-        }
-
-        // Restore the legacy sigma=1 behavior: trigger exactly once when the
-        // support round first reaches `coverage`, then rely on the normal
-        // recheck path (if enabled) for any later support certificates.
-        if self.support_round_total_stake(state, round) != self.committee.coverage as Stake {
-            return None;
-        }
-
-        let leader_round = round - 1;
-        if leader_round != 1 && !self.committee.is_solid_wave(leader_round) {
-            return None;
-        }
-
-        self.build_pending_commit_check(
-            CommitCheckPath::Solid,
-            leader_round,
-            round,
             false,
             state,
         )
@@ -635,10 +602,6 @@ impl Consensus {
         state: &State,
     ) -> Vec<PendingCommitCheck> {
         let mut candidates = Vec::new();
-        if let Some(candidate) = self.sigma_one_immediate_pending_commit_check_for_round(round, state)
-        {
-            candidates.push(candidate);
-        }
         if let Some(candidate) = self.fast_coin_pending_commit_check_for_round(round, state) {
             candidates.push(candidate);
         }
@@ -809,7 +772,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
         pending.seen_support_certificate_digests =
             Self::support_certificate_digests(state, support_round);
         if stake < threshold {
-            debug!(
+            info!(
                 "DAG_COMMIT_CHECK path={} leader_round={} leader_node={} support_round={} support_basis={} trigger_round={} stake={} threshold={} result=insufficient_stake support_set={:?}",
                 path.log_label(),
                 leader_round,
@@ -892,7 +855,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
             return false;
         }
 
-        debug!(
+        info!(
             "DAG_COMMIT_CHECK path={} leader_round={} leader_node={} support_round={} support_basis={} trigger_round={} stake={} threshold={} result=committed support_set={:?}",
             path.log_label(),
             leader_round,
@@ -933,7 +896,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
 
         for certificate in sequence {
             let node_id = self.author_to_node_id(certificate.origin());
-            debug!(
+            info!(
                 "DAG_COMMITTED round={} node={} digest={:?}",
                 certificate.round(),
                 node_id,
@@ -1213,7 +1176,7 @@ leader_digest(cert)= {:?} -> {:?} (node_id={})",
 
                 if !vertices.is_empty() {
                     round_output.push_str(&format!(" {} ", vertices.join(" --- ")));
-                    debug!("{}", round_output);
+                    info!("{}", round_output);
                 }
             }
         }

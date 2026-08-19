@@ -6,13 +6,10 @@ use crypto::{Digest, PublicKey};
 use log::{error, warn};
 use network::SimpleSender;
 use store::Store;
-use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 
 /// A task dedicated to help other authorities by replying to their certificates requests.
 pub struct Helper {
-    /// The public key of this primary.
-    name: PublicKey,
     /// The committee information.
     committee: Committee,
     /// The persistent storage.
@@ -21,52 +18,24 @@ pub struct Helper {
     rx_primaries: Receiver<(Vec<Digest>, PublicKey)>,
     /// A network sender to reply to the sync requests.
     network: SimpleSender,
-    /// Node-local attack clock.
-    boot_instant: Instant,
 }
 
 impl Helper {
     pub fn spawn(
-        name: PublicKey,
         committee: Committee,
         store: Store,
         rx_primaries: Receiver<(Vec<Digest>, PublicKey)>,
     ) {
         tokio::spawn(async move {
             Self {
-                name,
                 committee,
                 store,
                 rx_primaries,
                 network: SimpleSender::new(),
-                boot_instant: Instant::now(),
             }
             .run()
             .await;
         });
-    }
-
-    fn attack_active(&self) -> bool {
-        if !self.committee.attack_enabled || !self.committee.attack_limit_certificates {
-            return false;
-        }
-        let elapsed = self.boot_instant.elapsed();
-        let start = Duration::from_secs(self.committee.attack_start_secs);
-        if elapsed < start {
-            return false;
-        }
-        let duration_secs = self.committee.attack_duration_secs;
-        if duration_secs == 0 {
-            return true;
-        }
-        elapsed < start + Duration::from_secs(duration_secs)
-    }
-
-    fn should_reply_to_requestor(&self, requestor: &PublicKey) -> bool {
-        !self.attack_active()
-            || self
-                .committee
-                .selective_attack_allows_sender_to_recipient(&self.name, requestor)
     }
 
     async fn run(&mut self) {
@@ -81,10 +50,6 @@ impl Helper {
                     continue;
                 }
             };
-
-            if !self.should_reply_to_requestor(&origin) {
-                continue;
-            }
 
             // Reply to the request (the best we can).
             for digest in digests {

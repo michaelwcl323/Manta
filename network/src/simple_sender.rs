@@ -3,7 +3,7 @@ use crate::error::NetworkError;
 use bytes::Bytes;
 use futures::sink::SinkExt as _;
 use futures::stream::StreamExt as _;
-use log::{debug, warn};
+use log::{info, warn};
 use rand::prelude::SliceRandom as _;
 use rand::rngs::SmallRng;
 use rand::SeedableRng as _;
@@ -113,7 +113,7 @@ impl Connection {
                 return;
             }
         };
-        debug!("Outgoing connection established with {}", self.address);
+        info!("Outgoing connection established with {}", self.address);
 
         // Transmit messages once we have established a connection.
         loop {

@@ -1,8 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
 use crate::common::{
-    attack_committee, certificate, committee, committee_with_base_port, header, headers, keys,
-    listener, votes,
+    certificate, committee, committee_with_base_port, header, headers, keys, listener, votes,
 };
 use crate::messages::set_author_bit;
 use crypto::Signature;
@@ -827,6 +826,161 @@ async fn process_votes() {
 }
 
 #[tokio::test]
+async fn process_votes_before_header_still_assembles_certificate_locally() {
+    let (name, secret) = keys().pop().unwrap();
+    let signature_service = SignatureService::new(secret);
+
+    let committee = committee_with_base_port(13_400);
+
+    let (tx_sync_headers, _rx_sync_headers) = channel(1);
+    let (tx_sync_certificates, _rx_sync_certificates) = channel(1);
+    let (tx_primary_messages, rx_primary_messages) = channel(8);
+    let (_tx_headers_loopback, rx_headers_loopback) = channel(1);
+    let (_tx_certificates_loopback, rx_certificates_loopback) = channel(1);
+    let (_tx_headers, rx_headers) = channel(1);
+    let (tx_consensus, mut rx_consensus) = channel(2);
+    let (tx_parents, _rx_parents) = channel(1);
+
+    let path = ".db_test_process_votes_before_header";
+    let _ = fs::remove_dir_all(path);
+    let mut store = Store::new(path).unwrap();
+
+    let synchronizer = Synchronizer::new(
+        name,
+        &committee,
+        store.clone(),
+        /* tx_header_waiter */ tx_sync_headers,
+        /* tx_certificate_waiter */ tx_sync_certificates,
+    );
+
+    Core::spawn(
+        name,
+        committee.clone(),
+        store.clone(),
+        synchronizer,
+        signature_service,
+        /* consensus_round */ Arc::new(AtomicU64::new(0)),
+        /* gc_depth */ 50,
+        /* rx_primaries */ rx_primary_messages,
+        /* rx_header_waiter */ rx_headers_loopback,
+        /* rx_certificate_waiter */ rx_certificates_loopback,
+        /* rx_proposer */ rx_headers,
+        tx_consensus,
+        /* tx_proposer */ tx_parents,
+    );
+
+    let target_header = header();
+    let expected_certificate = certificate(&target_header);
+
+    for vote in votes(&target_header) {
+        tx_primary_messages
+            .send(PrimaryMessage::Vote(vote))
+            .await
+            .unwrap();
+    }
+
+    tx_primary_messages
+        .send(PrimaryMessage::Header(target_header.clone()))
+        .await
+        .unwrap();
+
+    let received = rx_consensus.recv().await.unwrap();
+    assert_eq!(received, expected_certificate);
+
+    let stored = store
+        .read(expected_certificate.digest().to_vec())
+        .await
+        .unwrap()
+        .map(|x| bincode::deserialize(&x).unwrap());
+    assert_eq!(stored, Some(expected_certificate));
+}
+
+#[tokio::test]
+async fn non_author_local_certificate_assembly_does_not_broadcast_certificate() {
+    let mut authorities = keys();
+    let (author, author_secret) = authorities.pop().unwrap();
+    let (name, secret) = authorities.pop().unwrap();
+    let signature_service = SignatureService::new(secret);
+
+    let committee = committee_with_base_port(13_500);
+
+    let (tx_sync_headers, _rx_sync_headers) = channel(1);
+    let (tx_sync_certificates, _rx_sync_certificates) = channel(1);
+    let (tx_primary_messages, rx_primary_messages) = channel(8);
+    let (_tx_headers_loopback, rx_headers_loopback) = channel(1);
+    let (_tx_certificates_loopback, rx_certificates_loopback) = channel(1);
+    let (_tx_headers, rx_headers) = channel(1);
+    let (tx_consensus, mut rx_consensus) = channel(2);
+    let (tx_parents, _rx_parents) = channel(1);
+
+    let path = ".db_test_non_author_local_certificate_assembly";
+    let _ = fs::remove_dir_all(path);
+    let mut store = Store::new(path).unwrap();
+
+    let synchronizer = Synchronizer::new(
+        name,
+        &committee,
+        store.clone(),
+        /* tx_header_waiter */ tx_sync_headers,
+        /* tx_certificate_waiter */ tx_sync_certificates,
+    );
+
+    Core::spawn(
+        name,
+        committee.clone(),
+        store.clone(),
+        synchronizer,
+        signature_service,
+        /* consensus_round */ Arc::new(AtomicU64::new(0)),
+        /* gc_depth */ 50,
+        /* rx_primaries */ rx_primary_messages,
+        /* rx_header_waiter */ rx_headers_loopback,
+        /* rx_certificate_waiter */ rx_certificates_loopback,
+        /* rx_proposer */ rx_headers,
+        tx_consensus,
+        /* tx_proposer */ tx_parents,
+    );
+
+    let header = Header {
+        author,
+        round: 1,
+        parents: Certificate::genesis(&committee)
+            .iter()
+            .map(|x| x.digest())
+            .collect(),
+        ..Header::default()
+    };
+    let target_header = Header {
+        id: header.digest(),
+        signature: Signature::new(&header.digest(), &author_secret),
+        ..header
+    };
+    let expected_certificate = certificate(&target_header);
+
+    tx_primary_messages
+        .send(PrimaryMessage::Header(target_header.clone()))
+        .await
+        .unwrap();
+
+    for vote in votes(&target_header) {
+        tx_primary_messages
+            .send(PrimaryMessage::Vote(vote))
+            .await
+            .unwrap();
+    }
+
+    let received = rx_consensus.recv().await.unwrap();
+    assert_eq!(received, expected_certificate);
+
+    let stored = store
+        .read(expected_certificate.digest().to_vec())
+        .await
+        .unwrap()
+        .map(|x| bincode::deserialize(&x).unwrap());
+    assert_eq!(stored, Some(expected_certificate));
+}
+
+#[tokio::test]
 async fn process_certificates() {
     let (name, secret) = keys().pop().unwrap();
     let signature_service = SignatureService::new(secret);
@@ -893,7 +1047,10 @@ async fn process_certificates() {
             .map(|x| x.digest())
             .collect::<Vec<_>>(),
     );
-    assert_eq!(received, (parents, 1));
+    let mut expected_parents = parents;
+    expected_parents.wave_back_link_target_round = 2;
+    expected_parents.wave_back_link_author_bitmap = vec![0; committee().authority_bitmap_len()];
+    assert_eq!(received, (expected_parents, 1));
 
     // Ensure the core sends the certificates to the consensus.
     for x in certificates.clone() {
@@ -907,41 +1064,4 @@ async fn process_certificates() {
         let serialized = bincode::serialize(x).unwrap();
         assert_eq!(stored, Some(serialized));
     }
-}
-
-#[test]
-fn selective_attack_keeps_only_minimal_cross_group_senders() {
-    let committee = attack_committee(3);
-    let authorities: Vec<_> = committee.authorities.keys().copied().collect();
-
-    let sender_same_group = authorities[1];
-    let sender_other_group_allowed = authorities[2];
-    let sender_other_group_blocked = authorities[3];
-    let recipient = authorities[0];
-
-    assert!(committee.selective_attack_allows_sender_to_recipient(
-        &sender_same_group,
-        &recipient
-    ));
-    assert!(committee.selective_attack_allows_sender_to_recipient(
-        &sender_other_group_allowed,
-        &recipient
-    ));
-    assert!(!committee.selective_attack_allows_sender_to_recipient(
-        &sender_other_group_blocked,
-        &recipient
-    ));
-}
-
-#[test]
-fn selective_attack_cuts_all_cross_group_senders_at_local_coverage() {
-    let committee = attack_committee(2);
-    let authorities: Vec<_> = committee.authorities.keys().copied().collect();
-    let recipient = authorities[0];
-
-    assert_eq!(committee.selective_attack_cross_group_sender_limit(&recipient), 0);
-    assert!(!committee.selective_attack_allows_sender_to_recipient(
-        &authorities[2],
-        &recipient
-    ));
 }

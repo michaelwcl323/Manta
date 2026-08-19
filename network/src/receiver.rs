@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::SplitSink;
 use futures::stream::StreamExt as _;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::error::Error;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
@@ -58,7 +58,7 @@ impl<Handler: MessageHandler> Receiver<Handler> {
                     continue;
                 }
             };
-            debug!("Incoming connection established with {}", peer);
+            info!("Incoming connection established with {}", peer);
             Self::spawn_runner(socket, peer, self.handler.clone()).await;
         }
     }

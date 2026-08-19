@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::aggregators::{CertificatesAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
-use crate::messages::{merge_author_bitmaps, set_author_bit, Certificate, Header, ProposalParents, Vote};
+use crate::messages::{author_bitmap_stake, merge_author_bitmaps, set_author_bit, Certificate, Header, ProposalParents, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
@@ -9,12 +9,11 @@ use bytes::Bytes;
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -57,18 +56,22 @@ pub struct Core {
     last_voted: HashMap<Round, HashSet<PublicKey>>,
     /// The set of headers we are currently processing.
     processing: HashMap<Round, HashSet<Digest>>,
-    /// Our locally proposed headers waiting for quorum (keyed by header id).
+    /// All known uncertified headers waiting for a local vote quorum.
     pending_headers: HashMap<Digest, Header>,
-    /// One vote aggregator per locally proposed header.
+    /// One vote aggregator per known uncertified header.
     votes_aggregators: HashMap<Digest, VotesAggregator>,
+    /// Votes that arrived before we had processed the corresponding header.
+    pending_votes: HashMap<Digest, HashMap<PublicKey, Vote>>,
+    /// Headers for which we have already seen a certificate and should stop aggregating votes.
+    sealed_headers: HashMap<Digest, Round>,
+    /// Certificates fully processed by this node.
+    processed_certificates: HashMap<Digest, Round>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     /// A network sender to send the batches to the other workers.
     network: ReliableSender,
     /// Keeps the cancel handlers of the messages we sent.
     cancel_handlers: HashMap<Round, Vec<CancelHandler>>,
-    /// Node-local attack clock.
-    boot_instant: Instant,
 }
 
 impl Core {
@@ -99,84 +102,6 @@ impl Core {
         (target_round, bitmap)
     }
 
-    fn attack_active_for_headers(&self) -> bool {
-        self.committee.attack_limit_headers && self.attack_active_now()
-    }
-
-    fn attack_active_for_certificates(&self) -> bool {
-        self.committee.attack_limit_certificates && self.attack_active_now()
-    }
-
-    fn attack_active_now(&self) -> bool {
-        if !self.committee.attack_enabled {
-            return false;
-        }
-        let elapsed = self.boot_instant.elapsed();
-        let start = Duration::from_secs(self.committee.attack_start_secs);
-        if elapsed < start {
-            return false;
-        }
-        let duration_secs = self.committee.attack_duration_secs;
-        if duration_secs == 0 {
-            return true;
-        }
-        elapsed < start + Duration::from_secs(duration_secs)
-    }
-
-    fn spawn_attack_log_task(committee: Committee, boot_instant: Instant) {
-        if !committee.attack_enabled {
-            return;
-        }
-
-        tokio::spawn(async move {
-            let attack_start =
-                tokio::time::Instant::from_std(boot_instant + Duration::from_secs(committee.attack_start_secs));
-            tokio::time::sleep_until(attack_start).await;
-            info!(
-                "start attack: headers_limited={} certificates_limited={} \
-                 start_secs={} duration_secs={} group_size={} kappa={} reference={} coverage={}",
-                committee.attack_limit_headers,
-                committee.attack_limit_certificates,
-                committee.attack_start_secs,
-                committee.attack_duration_secs,
-                committee.attack_group_size,
-                committee.kappa,
-                committee.reference,
-                committee.coverage,
-            );
-
-            if committee.attack_duration_secs > 0 {
-                let attack_end = attack_start + Duration::from_secs(committee.attack_duration_secs);
-                tokio::time::sleep_until(attack_end).await;
-                info!(
-                    "end attack: elapsed_since_boot_secs={} duration_secs={}",
-                    committee.attack_start_secs + committee.attack_duration_secs,
-                    committee.attack_duration_secs,
-                );
-            }
-        });
-    }
-
-    fn broadcast_targets(&self, filter_for_headers: bool) -> Vec<(PublicKey, std::net::SocketAddr)> {
-        let attack_active = if filter_for_headers {
-            self.attack_active_for_headers()
-        } else {
-            self.attack_active_for_certificates()
-        };
-
-        self.committee
-            .others_primaries(&self.name)
-            .into_iter()
-            .filter(|(recipient, _)| {
-                !attack_active
-                    || self
-                        .committee
-                        .selective_attack_allows_sender_to_recipient(&self.name, recipient)
-            })
-            .map(|(recipient, addresses)| (recipient, addresses.primary_to_primary))
-            .collect()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         name: PublicKey,
@@ -194,8 +119,6 @@ impl Core {
         tx_proposer: Sender<(ProposalParents, Round)>,
     ) {
         tokio::spawn(async move {
-            let boot_instant = Instant::now();
-            Self::spawn_attack_log_task(committee.clone(), boot_instant);
             Self {
                 name,
                 committee,
@@ -215,10 +138,12 @@ impl Core {
                 processing: HashMap::with_capacity(2 * gc_depth as usize),
                 pending_headers: HashMap::with_capacity(2 * gc_depth as usize),
                 votes_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
+                pending_votes: HashMap::with_capacity(2 * gc_depth as usize),
+                sealed_headers: HashMap::with_capacity(2 * gc_depth as usize),
+                processed_certificates: HashMap::with_capacity(2 * gc_depth as usize),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
-                boot_instant,
             }
             .run()
             .await;
@@ -226,8 +151,8 @@ impl Core {
     }
 
     async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
-        // Track this locally proposed header independently so votes on current/future headers
-        // can be aggregated in parallel.
+        // Track this locally proposed header immediately so votes that race ahead of the
+        // local processing path can still be aggregated into a certificate.
         self.pending_headers
             .insert(header.id.clone(), header.clone());
         self.votes_aggregators
@@ -242,13 +167,18 @@ impl Core {
             "Broadcasting header {} (round {}) to other primaries",
             header.id, header.round
         );
-        let targets = self.broadcast_targets(true);
+        let addresses: Vec<_> = self
+            .committee
+            .others_primaries(&self.name)
+            .iter()
+            .map(|(_, x)| x.primary_to_primary)
+            .collect();
         let bytes = bincode::serialize(&PrimaryMessage::Header(header.clone()))
             .expect("Failed to serialize our own header");
         // Send to each primary individually so we can log per-node success/failure.
         let header_id = header.id.clone();
         let header_round = header.round;
-        for (_, address) in targets {
+        for address in addresses {
             let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
             let id = header_id.clone();
             tokio::spawn(async move {
@@ -339,11 +269,21 @@ impl Core {
             );
         }
 
-        let (expected_back_link_round, _) = self.wave_back_link_summary(&parents, round);
+        let (expected_back_link_round, expected_back_link_bitmap) =
+            self.wave_back_link_summary(&parents, round);
         ensure!(
-            header.wave_back_link_target_round == expected_back_link_round,
+            header.wave_back_link_target_round == expected_back_link_round
+                && header.wave_back_link_author_bitmap == expected_back_link_bitmap,
             DagError::MalformedHeader(header.id.clone())
         );
+
+        if let Some(target_round) = self.committee.wave_back_link_target_round(round) {
+            let link_stake = author_bitmap_stake(&self.committee, &expected_back_link_bitmap);
+            ensure!(
+                link_stake >= self.committee.quorum_threshold(),
+                DagError::HeaderRequiresWaveLink(header.id.clone(), target_round)
+            );
+        }
 
         // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
         // reschedule processing of this header once we have it.
@@ -360,6 +300,31 @@ impl Core {
         // Store the header.
         let bytes = bincode::serialize(header).expect("Failed to serialize header");
         self.store.write(header.id.to_vec(), bytes).await;
+
+        let header_id = header.id.clone();
+        let header_is_sealed = self.sealed_headers.contains_key(&header_id);
+        if !header_is_sealed {
+            self.pending_headers
+                .entry(header_id.clone())
+                .or_insert_with(|| header.clone());
+            self.votes_aggregators
+                .entry(header_id.clone())
+                .or_insert_with(VotesAggregator::new);
+
+            if let Some(cached_votes) = self.pending_votes.remove(&header_id) {
+                for vote in cached_votes.into_values() {
+                    self.process_vote(vote).await?;
+                }
+            }
+        }
+
+        if self.sealed_headers.contains_key(&header_id) {
+            debug!(
+                "Skipping local vote for header {} (round {}): certificate already available",
+                header.id, header.round
+            );
+            return Ok(());
+        }
 
         // Check if we can vote for this header.
         let already_voted = self
@@ -380,31 +345,29 @@ impl Core {
                 .or_insert_with(HashSet::new)
                 .insert(header.author);
 
-            // Make a vote and send it to the header's creator.
+            // Make a vote, process it locally, and fan it out to all other primaries so that
+            // any of them can assemble the certificate once they collect a quorum.
             let vote = Vote::new(header, &self.name, &mut self.signature_service).await;
             debug!(
                 "Created vote {:?} for header {} (round {})",
                 vote, header.id, header.round
             );
-            if vote.origin == self.name {
+            self.process_vote(vote.clone())
+                .await
+                .expect("Failed to process our own vote");
+
+            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
+                .expect("Failed to serialize our own vote");
+            let addresses: Vec<_> = self
+                .committee
+                .others_primaries(&self.name)
+                .iter()
+                .map(|(_, x)| x.primary_to_primary)
+                .collect();
+            for address in addresses {
+                let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
                 debug!(
-                    "Processing own vote for header {} (round {}) locally",
-                    header.id, header.round
-                );
-                self.process_vote(vote)
-                    .await
-                    .expect("Failed to process our own vote");
-            } else {
-                let address = self
-                    .committee
-                    .primary(&header.author)
-                    .expect("Author of valid header is not in the committee")
-                    .primary_to_primary;
-                let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
-                    .expect("Failed to serialize our own vote");
-                let handler = self.network.send(address, Bytes::from(bytes)).await;
-                debug!(
-                    "Forwarding vote for header {} (round {}) to primary at {}",
+                    "Broadcasting vote for header {} (round {}) to primary at {}",
                     header.id, header.round, address
                 );
                 self.cancel_handlers
@@ -420,13 +383,27 @@ impl Core {
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
         debug!("Processing {:?}", vote);
         let vote_id = vote.id.clone();
+        if self.sealed_headers.contains_key(&vote_id) {
+            debug!(
+                "Ignoring vote for header {} (round {}): certificate already available",
+                vote_id, vote.round
+            );
+            return Ok(());
+        }
 
         let header = match self.pending_headers.get(&vote_id) {
             Some(header) => header.clone(),
             None => {
+                let vote_round = vote.round;
+                let author = vote.author;
+                self.pending_votes
+                    .entry(vote_id.clone())
+                    .or_insert_with(HashMap::new)
+                    .entry(author)
+                    .or_insert(vote);
                 debug!(
-                    "Ignoring vote for unknown/local-untracked header {} (round {})",
-                    vote_id, vote.round
+                    "Caching vote for header {} (round {}) until the header is available",
+                    vote_id, vote_round
                 );
                 return Ok(());
             }
@@ -438,8 +415,10 @@ impl Core {
             .entry(vote_id.clone())
             .or_insert_with(VotesAggregator::new);
         if let Some(certificate) = aggregator.append(vote, &self.committee, &header)? {
+            self.sealed_headers.insert(vote_id.clone(), header.round);
             self.pending_headers.remove(&vote_id);
             self.votes_aggregators.remove(&vote_id);
+            self.pending_votes.remove(&vote_id);
             let origin = certificate.origin();
             let origin_node = self
                 .node_index(&origin)
@@ -457,38 +436,51 @@ impl Core {
                 header.round
             );
 
-            // Broadcast the certificate:
-            // 1. Local node assembles certificate from votes
-            // 2. Certificate is broadcast to all other primaries
-            // 3. Each primary delivers it to `Core::process_certificate`
-            let cert_id = certificate.header.id.clone();
-            let cert_round = certificate.round();
-            debug!(
-                "Broadcasting certificate {} (round {}) to other primaries",
-                cert_id, cert_round
-            );
-            let targets = self.broadcast_targets(false);
-            let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                .expect("Failed to serialize our own certificate");
-            for (_, address) in targets {
-                let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
-                let id = cert_id.clone();
-                tokio::spawn(async move {
-                    match handler.await {
-                        Ok(_) => {
-                            debug!(
-                                "Certificate {} (round {}) successfully delivered to primary {}",
-                                id, cert_round, address
-                            );
+            if certificate.origin() == self.name {
+                // Only the header author broadcasts the certificate. Other primaries may still
+                // assemble it locally and use it immediately, but they avoid duplicate network
+                // broadcasts for the same certificate.
+                let cert_id = certificate.header.id.clone();
+                let cert_round = certificate.round();
+                debug!(
+                    "Broadcasting certificate {} (round {}) to other primaries",
+                    cert_id, cert_round
+                );
+                let addresses: Vec<_> = self
+                    .committee
+                    .others_primaries(&self.name)
+                    .iter()
+                    .map(|(_, x)| x.primary_to_primary)
+                    .collect();
+                let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
+                    .expect("Failed to serialize our own certificate");
+                for address in addresses {
+                    let handler = self.network.send(address, Bytes::from(bytes.clone())).await;
+                    let id = cert_id.clone();
+                    tokio::spawn(async move {
+                        match handler.await {
+                            Ok(_) => {
+                                debug!(
+                                    "Certificate {} (round {}) successfully delivered to primary {}",
+                                    id, cert_round, address
+                                );
+                            }
+                            Err(_) => {
+                                debug!(
+                                    "Certificate {} (round {}) delivery to primary {} was canceled or failed",
+                                    id, cert_round, address
+                                );
+                            }
                         }
-                        Err(_) => {
-                            debug!(
-                                "Certificate {} (round {}) delivery to primary {} was canceled or failed",
-                                id, cert_round, address
-                            );
-                        }
-                    }
-                });
+                    });
+                }
+            } else {
+                debug!(
+                    "Keeping certificate {} (round {}) local: author {} will broadcast it",
+                    certificate.header.id,
+                    certificate.round(),
+                    certificate.origin(),
+                );
             }
 
             // Process the new certificate.
@@ -501,6 +493,30 @@ impl Core {
 
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
+        let certificate_digest = certificate.digest();
+        if self
+            .processed_certificates
+            .contains_key(&certificate.header.id)
+            || self
+                .store
+                .read(certificate_digest.to_vec())
+                .await?
+                .is_some()
+        {
+            debug!(
+                "Skipping already processed certificate {} (round {})",
+                certificate.header.id,
+                certificate.round()
+            );
+            return Ok(());
+        }
+
+        self.sealed_headers
+            .insert(certificate.header.id.clone(), certificate.round());
+        self.pending_headers.remove(&certificate.header.id);
+        self.votes_aggregators.remove(&certificate.header.id);
+        self.pending_votes.remove(&certificate.header.id);
+
         let origin = certificate.origin();
         let origin_node = self
             .node_index(&origin)
@@ -539,7 +555,9 @@ impl Core {
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
-        self.store.write(certificate.digest().to_vec(), bytes).await;
+        self.store.write(certificate_digest.to_vec(), bytes).await;
+        self.processed_certificates
+            .insert(certificate.header.id.clone(), certificate.round());
 
         // Aggregate certificates by their own round instead of a single global current_round.
         // Whichever round reaches the unlock condition first can be dispatched to proposer first.
@@ -552,6 +570,33 @@ impl Core {
                 .or_insert_with(|| Box::new(CertificatesAggregator::new(target_round)))
                 .append(certificate.clone(), &self.committee)?
             {
+                let proposal_round = target_round + 1;
+                if let Some(back_link_round) = self.committee.wave_back_link_target_round(proposal_round) {
+                    if parents.wave_back_link_target_round != back_link_round {
+                        debug!(
+                            "Delaying proposer unlock for round {}: parent bitmap tracks round {} instead of {}",
+                            proposal_round,
+                            parents.wave_back_link_target_round,
+                            back_link_round,
+                        );
+                        continue;
+                    }
+                    let link_stake = author_bitmap_stake(
+                        &self.committee,
+                        &parents.wave_back_link_author_bitmap,
+                    );
+                    if link_stake < self.committee.quorum_threshold() {
+                        debug!(
+                            "Delaying proposer unlock for round {}: only {} stake links to round {} (need {})",
+                            proposal_round,
+                            link_stake,
+                            back_link_round,
+                            self.committee.quorum_threshold(),
+                        );
+                        continue;
+                    }
+                }
+
                 // Send it to the `Proposer`.
                 self.tx_proposer
                     .send((parents, target_round))
@@ -643,8 +688,7 @@ impl Core {
         // );
 
         // // Verify the vote.
-        let _ = vote.verify(&self.committee).map_err(DagError::from);
-        Ok(())
+        vote.verify(&self.committee).map_err(DagError::from)
     }
 
     fn sanitize_certificate(&mut self, certificate: &Certificate) -> DagResult<()> {
@@ -783,6 +827,12 @@ impl Core {
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
                 self.pending_headers.retain(|_, h| h.round >= gc_round);
+                self.pending_votes.retain(|_, votes| {
+                    votes.values().next().map_or(false, |vote| vote.round >= gc_round)
+                });
+                self.sealed_headers.retain(|_, round| *round >= gc_round);
+                self.processed_certificates
+                    .retain(|_, round| *round >= gc_round);
                 let active_header_ids: HashSet<Digest> =
                     self.pending_headers.keys().cloned().collect();
                 self.votes_aggregators

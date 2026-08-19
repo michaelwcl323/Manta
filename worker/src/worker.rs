@@ -10,7 +10,7 @@ use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
 use crypto::{Digest, PublicKey};
 use futures::sink::SinkExt as _;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use network::{MessageHandler, Receiver, Writer};
 use primary::PrimaryWorkerMessage;
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ impl Worker {
             /* rx_message */ rx_synchronizer,
         );
 
-        debug!(
+        info!(
             "Worker {} listening to primary messages on {}",
             self.id, address
         );
@@ -187,7 +187,7 @@ impl Worker {
             /* own_batch */ true,
         );
 
-        debug!(
+        info!(
             "Worker {} listening to client transactions on {}",
             self.id, address
         );
@@ -232,7 +232,7 @@ impl Worker {
             /* own_batch */ false,
         );
 
-        debug!(
+        info!(
             "Worker {} listening to worker messages on {}",
             self.id, address
         );

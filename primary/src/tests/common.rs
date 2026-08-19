@@ -73,12 +73,6 @@ pub fn committee() -> Committee {
         fast_coin_candidate_threshold: 0,
         solid_candidate_threshold: 0,
         solid_commit_trigger_on_solid_step: false,
-        attack_enabled: false,
-        attack_start_secs: 0,
-        attack_duration_secs: 0,
-        attack_group_size: 0,
-        attack_limit_headers: false,
-        attack_limit_certificates: true,
     }
 }
 
@@ -105,19 +99,6 @@ pub fn committee_with_base_port(base_port: u16) -> Committee {
             worker.worker_to_worker.set_port(base_port + port);
         }
     }
-    committee
-}
-
-// Fixture.
-pub fn attack_committee(coverage: usize) -> Committee {
-    let mut committee = committee();
-    committee.coverage = coverage;
-    committee.attack_enabled = true;
-    committee.attack_start_secs = 0;
-    committee.attack_duration_secs = 0;
-    committee.attack_group_size = 2;
-    committee.attack_limit_headers = false;
-    committee.attack_limit_certificates = true;
     committee
 }
 

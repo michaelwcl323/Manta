@@ -14,7 +14,7 @@ use bytes::Bytes;
 use config::{Committee, KeyPair, Parameters, WorkerId};
 use crypto::{Digest, PublicKey, SignatureService};
 use futures::sink::SinkExt as _;
-use log::{debug, info};
+use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -102,7 +102,7 @@ impl Primary {
                 tx_cert_requests,
             },
         );
-        debug!(
+        info!(
             "Primary {} listening to primary messages on {}",
             name, address
         );
@@ -121,7 +121,7 @@ impl Primary {
                 tx_others_digests,
             },
         );
-        debug!(
+        info!(
             "Primary {} listening to workers messages on {}",
             name, address
         );
@@ -202,7 +202,7 @@ impl Primary {
         );
 
         // The `Helper` is dedicated to reply to certificates requests from other primaries.
-        Helper::spawn(name, committee.clone(), store, rx_cert_requests);
+        Helper::spawn(committee.clone(), store, rx_cert_requests);
 
         // NOTE: This log entry is used to compute performance.
         info!(
