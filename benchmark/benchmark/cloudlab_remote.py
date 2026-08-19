@@ -333,7 +333,7 @@ class CloudLabBench:
                         fi
                         rm -f logs/resource-monitor.pid
                     fi
-                    pkill -f "resource-cpu.raw|resource-net.raw" 2>/dev/null || true
+                    pkill -f "[r]esource-cpu.raw|[r]esource-net.raw" 2>/dev/null || true
                     echo stopped
                 '''
                 c.run(cmd, hide=True, warn=True, shell='/bin/bash')
@@ -794,13 +794,13 @@ class CloudLabBench:
         # This will kill all processes matching the benchmark patterns
         # Broad patterns: match release binary and client even if argv layout differs.
         kill_cmd = '''
-            pkill -9 -f "target/release/node" 2>/dev/null || true
-            pkill -9 -f "[./]*node .*-vv run" 2>/dev/null || true
-            pkill -9 -f "[./]*node .* run --keys" 2>/dev/null || true
-            pkill -9 -f "node.*primary" 2>/dev/null || true
-            pkill -9 -f "node.*worker" 2>/dev/null || true
-            pkill -9 -f "benchmark_client" 2>/dev/null || true
-            pkill -9 -f "/tmp/run_(primary|worker|client)-" 2>/dev/null || true
+            pkill -9 -f "[t]arget/release/node" 2>/dev/null || true
+            pkill -9 -f "[./]*[n]ode .*-vv run" 2>/dev/null || true
+            pkill -9 -f "[./]*[n]ode .* run --keys" 2>/dev/null || true
+            pkill -9 -f "[n]ode.*primary" 2>/dev/null || true
+            pkill -9 -f "[n]ode.*worker" 2>/dev/null || true
+            pkill -9 -f "[b]enchmark_client" 2>/dev/null || true
+            pkill -9 -f "[/]tmp/run_(primary|worker|client)-" 2>/dev/null || true
             true
         '''
         # Cleanup database directories and lock files
@@ -922,7 +922,7 @@ class CloudLabBench:
 
         # Match the same process families we kill. Keep the check itself out of matches.
         check_cmd = (
-            "pgrep -af 'target/release/node|benchmark_client|/tmp/run_(primary|worker|client)-' "
+            "pgrep -af '[t]arget/release/node|[b]enchmark_client|[/]tmp/run_(primary|worker|client)-' "
             "2>/dev/null || true"
         )
 

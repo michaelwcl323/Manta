@@ -107,6 +107,50 @@ impl Header {
         self.wave_back_link_target_round = target_round;
         self.wave_back_link_author_bitmap = bitmap;
     }
+
+    /// Return the bincode-serialized sizes of the payload references, Tusk
+    /// metadata, Manta extra metadata, and the complete header, respectively.
+    pub fn serialized_size_breakdown(&self) -> (usize, usize, usize, usize) {
+        let payload_bytes = bincode::serialized_size(&self.payload)
+            .expect("Failed to measure header payload") as usize;
+
+        let tusk_metadata_bytes = bincode::serialized_size(&(
+            &self.author,
+            self.round,
+            &self.parents,
+            &self.id,
+            &self.signature,
+        ))
+        .expect("Failed to measure Tusk header metadata")
+            as usize;
+
+        let manta_extra_metadata_bytes = bincode::serialized_size(&(
+            &self.solid_step_vertices,
+            &self.solid_step_vertices_merged,
+            &self.solid_wave_vertices,
+            &self.solid_wave_vertices_merged,
+            self.wave_back_link_target_round,
+            &self.wave_back_link_author_bitmap,
+        ))
+        .expect("Failed to measure Manta extra header metadata")
+            as usize;
+
+        let full_header_bytes =
+            bincode::serialized_size(self).expect("Failed to measure complete header") as usize;
+
+        debug_assert_eq!(
+            payload_bytes + tusk_metadata_bytes + manta_extra_metadata_bytes,
+            full_header_bytes,
+            "Header size decomposition is inconsistent"
+        );
+
+        (
+            payload_bytes,
+            tusk_metadata_bytes,
+            manta_extra_metadata_bytes,
+            full_header_bytes,
+        )
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -349,5 +393,35 @@ impl PartialEq for Certificate {
         ret &= self.round() == other.round();
         ret &= self.origin() == other.origin();
         ret
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    #[test]
+    fn header_serialized_size_breakdown_is_additive() {
+        let mut header = Header::default();
+        header.payload.insert(Digest([5; 32]), 0);
+        header.solid_step_vertices.insert(Digest([1; 32]));
+        header.solid_step_vertices_merged.insert(Digest([2; 32]));
+        header.solid_wave_vertices.insert(Digest([3; 32]));
+        header.solid_wave_vertices_merged.insert(Digest([4; 32]));
+        header.wave_back_link_target_round = 7;
+        header.wave_back_link_author_bitmap = vec![0xaa, 0x55, 0x01];
+
+        let (payload_bytes, tusk_metadata_bytes, manta_extra_metadata_bytes, full_header_bytes) =
+            header.serialized_size_breakdown();
+
+        assert_eq!(
+            payload_bytes + tusk_metadata_bytes + manta_extra_metadata_bytes,
+            full_header_bytes
+        );
+        assert_eq!(
+            payload_bytes,
+            bincode::serialized_size(&header.payload).unwrap() as usize
+        );
+        assert_eq!(manta_extra_metadata_bytes, 48 + 4 * 32 + 3);
     }
 }

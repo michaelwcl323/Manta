@@ -44,7 +44,7 @@ def local(ctx, debug=False):
         'rate_type': 'balanced',
         'rate': 80000,
         'tx_size': 512,
-        'duration': 20,
+        'duration': 120,
     }
     node_params = {
         'header_size': 1000,  # bytes

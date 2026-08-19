@@ -385,6 +385,61 @@ class PathMaker:
         return output_file
 
     @staticmethod
+    def header_size_summary(log_files=None):
+        """Summarize serialized Header size measurements from primary logs."""
+        log_files = log_files or sorted(glob(join(PathMaker.logs_path(), 'primary-*.log')))
+        line_re = re.compile(
+            r"HEADER_SIZE\s+round=(?P<round>\d+)\s+"
+            r"payload_bytes=(?P<payload_bytes>\d+)\s+"
+            r"tusk_metadata_bytes=(?P<tusk_metadata_bytes>\d+)\s+"
+            r"manta_extra_metadata_bytes=(?P<manta_extra_metadata_bytes>\d+)\s+"
+            r"full_header_bytes=(?P<full_header_bytes>\d+)"
+        )
+        rows = []
+
+        for path in log_files:
+            if not os.path.exists(path):
+                continue
+            with open(path, 'r', errors='replace') as f:
+                for line in f:
+                    match = line_re.search(line)
+                    if not match:
+                        continue
+                    rows.append({
+                        key: int(match.group(key))
+                        for key in (
+                            'round',
+                            'payload_bytes',
+                            'tusk_metadata_bytes',
+                            'manta_extra_metadata_bytes',
+                            'full_header_bytes',
+                        )
+                    })
+
+        if not rows:
+            return None
+
+        sample_count = len(rows)
+
+        return {
+            'samples': sample_count,
+            'round_min': min(row['round'] for row in rows),
+            'round_max': max(row['round'] for row in rows),
+            'payload_avg_bytes': (
+                sum(row['payload_bytes'] for row in rows) / sample_count
+            ),
+            'tusk_metadata_avg_bytes': (
+                sum(row['tusk_metadata_bytes'] for row in rows) / sample_count
+            ),
+            'manta_extra_metadata_avg_bytes': (
+                sum(row['manta_extra_metadata_bytes'] for row in rows) / sample_count
+            ),
+            'full_header_avg_bytes': (
+                sum(row['full_header_bytes'] for row in rows) / sample_count
+            ),
+        }
+
+    @staticmethod
     def export_annotated_dag_artifacts(log_files=None, final_dag_file=None):
         log_files = log_files or sorted(glob(join(PathMaker.logs_path(), 'primary-*.log')))
         final_dag_file = final_dag_file or PathMaker.final_dag_file()

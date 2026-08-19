@@ -556,6 +556,21 @@ impl Proposer {
         );
 
         #[cfg(feature = "benchmark")]
+        {
+            let (payload_bytes, tusk_metadata_bytes, manta_extra_metadata_bytes, full_header_bytes) =
+                header.serialized_size_breakdown();
+            info!(
+                "HEADER_SIZE round={} payload_bytes={} tusk_metadata_bytes={} \
+                 manta_extra_metadata_bytes={} full_header_bytes={}",
+                header.round,
+                payload_bytes,
+                tusk_metadata_bytes,
+                manta_extra_metadata_bytes,
+                full_header_bytes,
+            );
+        }
+
+        #[cfg(feature = "benchmark")]
         for digest in header.payload.keys() {
             // NOTE: This log entry is used to compute performance.
             info!("Created {} -> {:?}", header, digest);

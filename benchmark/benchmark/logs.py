@@ -61,7 +61,8 @@ def parse_primary_log_markers(log_path):
 
 class LogParser:
     def __init__(self, clients, primaries, workers, faults=0,
-                 default_client_size=None, default_client_rates=None):
+                 default_client_size=None, default_client_rates=None,
+                 header_size=None):
         inputs = [clients, primaries, workers]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
@@ -134,6 +135,7 @@ class LogParser:
 
         self._matched_end_to_end_samples_cache = None
         self._missing_end_to_end_samples = None
+        self.header_size = header_size
 
     def _merge_results(self, input):
         # Keep the earliest timestamp.
@@ -380,6 +382,26 @@ class LogParser:
                 'proposal and commit timestamps, so consensus metrics are reported as 0.\n'
             )
 
+        if self.header_size:
+            sizes = self.header_size
+            header_size_lines = (
+                '\n'
+                ' + HEADER SIZE BREAKDOWN:\n'
+                f" Samples: {sizes['samples']:,} "
+                f"(rounds {sizes['round_min']}-{sizes['round_max']})\n"
+                f" Average payload: {sizes['payload_avg_bytes']:.2f} B\n"
+                f" Average Tusk metadata: {sizes['tusk_metadata_avg_bytes']:.2f} B\n"
+                f" Average Manta extra metadata: "
+                f"{sizes['manta_extra_metadata_avg_bytes']:.2f} B\n"
+                f" Average full Header: {sizes['full_header_avg_bytes']:.2f} B\n"
+            )
+        else:
+            header_size_lines = (
+                '\n'
+                ' + HEADER SIZE BREAKDOWN:\n'
+                ' No HEADER_SIZE records found in primary logs\n'
+            )
+
         return (
             '\n'
             '-----------------------------------------\n'
@@ -413,6 +435,7 @@ class LogParser:
             f' End-to-end BPS: {round(end_to_end_bps):,} B/s\n'
             f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
             f'{sample_warning}'
+            f'{header_size_lines}'
             '-----------------------------------------\n'
         )
 
@@ -487,8 +510,9 @@ class LogParser:
         for filename in sorted(glob(join(directory, 'client-*.log'))):
             with open(filename, 'r') as f:
                 clients += [f.read()]
+        primary_files = sorted(glob(join(directory, 'primary-*.log')))
         primaries = []
-        for filename in sorted(glob(join(directory, 'primary-*.log'))):
+        for filename in primary_files:
             with open(filename, 'r') as f:
                 primaries += [f.read()]
         workers = []
@@ -503,4 +527,5 @@ class LogParser:
             faults=faults,
             default_client_size=default_client_size,
             default_client_rates=default_client_rates,
+            header_size=PathMaker.header_size_summary(primary_files),
         )
