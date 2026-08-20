@@ -1,7 +1,8 @@
 # Copyright(C) Facebook, Inc. and its affiliates.
 import csv
+import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from multiprocessing import Pool
 from os.path import join
@@ -59,6 +60,35 @@ def parse_primary_log_markers(log_path):
     return markers
 
 
+def _parse_round_timestamps(log):
+    """Return the earliest header-creation timestamp observed for each round."""
+    timestamp_re = (
+        r'\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) '
+    )
+    patterns = (
+        # Current benchmark builds emit HEADER_SIZE once for every proposed round.
+        timestamp_re + r'.* HEADER_SIZE round=(\d+)',
+        # Compatibility with experiment logs produced by older branches.
+        timestamp_re + r'.* HEADER_METADATA round=(\d+)',
+        timestamp_re + r'.* Created .* header .* round (\d+)',
+        timestamp_re + r'.* Created B(\d+)\(',
+    )
+
+    timestamps = {}
+    for line in log.splitlines():
+        for pattern in patterns:
+            match = search(pattern, line)
+            if match is None:
+                continue
+            timestamp = _to_posix_utc(match.group(1))
+            round_number = int(match.group(2))
+            current = timestamps.get(round_number)
+            if current is None or timestamp < current:
+                timestamps[round_number] = timestamp
+            break
+    return timestamps
+
+
 class LogParser:
     def __init__(self, clients, primaries, workers, faults=0,
                  default_client_size=None, default_client_rates=None,
@@ -108,7 +138,14 @@ class LogParser:
                 results = p.map(self._parse_primaries, primaries)
         except (ValueError, IndexError, AttributeError) as e:
             raise ParseError(f'Failed to parse nodes\' logs: {e}')
-        proposals, commits, self.configs, primary_ips, primary_boot_ts = zip(*results)
+        (
+            proposals,
+            commits,
+            self.configs,
+            primary_ips,
+            primary_boot_ts,
+            self.round_timestamps,
+        ) = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.primary_boot_ts = [x for x in primary_boot_ts if x is not None]
@@ -208,7 +245,7 @@ class LogParser:
             ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
             boot_ts = None
 
-        return proposals, commits, configs, ip, boot_ts
+        return proposals, commits, configs, ip, boot_ts, _parse_round_timestamps(log)
 
     def _parse_workers(self, log):
         if search(r'(?:panic|Error)', log) is not None:
@@ -497,6 +534,149 @@ class LogParser:
                     'latency_ms',
                 ],
             )
+            writer.writeheader()
+            writer.writerows(rows)
+        return filename
+
+    def _configured_wave_length(self):
+        node_params = PathMaker.load_run_metadata().get('node_params', {})
+        try:
+            sigma = int(node_params['sigma'])
+            kappa = int(node_params['kappa'])
+        except (KeyError, TypeError, ValueError):
+            try:
+                with open(PathMaker.committee_file(), 'r') as f:
+                    committee = json.load(f)
+                sigma = int(committee['sigma'])
+                kappa = int(committee['kappa'])
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                return None
+        wave_length = sigma * kappa
+        return wave_length if wave_length > 0 else None
+
+    @staticmethod
+    def _format_utc(timestamp):
+        return (
+            datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            .isoformat(timespec='milliseconds')
+            .replace('+00:00', 'Z')
+        )
+
+    def export_round_wave_timing_csv(self, filename=None, wave_length=None):
+        """Export per-round and per-wave header creation spans.
+
+        A round spans from the first to the last primary that creates a header
+        for that round. A wave spans all observed header creation events in its
+        ``sigma * kappa`` rounds. Incomplete rounds/waves remain in the table and
+        are explicitly marked as such.
+        """
+        filename = filename or PathMaker.round_wave_timing_csv_file()
+        wave_length = wave_length or self._configured_wave_length()
+        if wave_length is None:
+            return None
+        try:
+            wave_length = int(wave_length)
+        except (TypeError, ValueError):
+            return None
+        if wave_length <= 0:
+            return None
+
+        samples_by_round = {}
+        for primary_timestamps in self.round_timestamps:
+            for round_number, timestamp in primary_timestamps.items():
+                if round_number <= 0:
+                    continue
+                samples_by_round.setdefault(round_number, []).append(timestamp)
+        if not samples_by_round:
+            return None
+
+        baseline = min(min(samples) for samples in samples_by_round.values())
+        primary_count = len(self.round_timestamps)
+        rows = []
+        for round_number in sorted(samples_by_round):
+            samples = samples_by_round[round_number]
+            start = min(samples)
+            end = max(samples)
+            wave = (round_number - 1) // wave_length + 1
+            rows.append({
+                'scope': 'round',
+                'index': round_number,
+                'wave': wave,
+                'round_start': round_number,
+                'round_end': round_number,
+                'start_timestamp_utc': self._format_utc(start),
+                'end_timestamp_utc': self._format_utc(end),
+                'start_elapsed_ms': round((start - baseline) * 1000, 3),
+                'duration_ms': round((end - start) * 1000, 3),
+                'observed_rounds': 1,
+                'min_observed_primaries': len(samples),
+                'complete': len(samples) == primary_count,
+            })
+
+        max_round = max(samples_by_round)
+        max_wave = (max_round - 1) // wave_length + 1
+        for wave in range(1, max_wave + 1):
+            round_start = (wave - 1) * wave_length + 1
+            round_end = wave * wave_length
+            observed = [
+                round_number
+                for round_number in range(round_start, round_end + 1)
+                if round_number in samples_by_round
+            ]
+            if not observed:
+                continue
+            samples = [
+                timestamp
+                for round_number in observed
+                for timestamp in samples_by_round[round_number]
+            ]
+            start = min(samples)
+            end = max(samples)
+            complete = (
+                len(observed) == wave_length
+                and all(
+                    len(samples_by_round[round_number]) == primary_count
+                    for round_number in observed
+                )
+            )
+            rows.append({
+                'scope': 'wave',
+                'index': wave,
+                'wave': wave,
+                'round_start': round_start,
+                'round_end': round_end,
+                'start_timestamp_utc': self._format_utc(start),
+                'end_timestamp_utc': self._format_utc(end),
+                'start_elapsed_ms': round((start - baseline) * 1000, 3),
+                'duration_ms': round((end - start) * 1000, 3),
+                'observed_rounds': len(observed),
+                'min_observed_primaries': min(
+                    len(samples_by_round[round_number])
+                    for round_number in observed
+                ),
+                'complete': complete,
+            })
+
+        rows.sort(key=lambda row: (row['wave'], row['scope'] == 'wave', row['index']))
+        output_dir = os.path.dirname(filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        fieldnames = [
+            'scope',
+            'index',
+            'wave',
+            'round_start',
+            'round_end',
+            'start_timestamp_utc',
+            'end_timestamp_utc',
+            'start_elapsed_ms',
+            'duration_ms',
+            'observed_rounds',
+            'min_observed_primaries',
+            'complete',
+        ]
+        with open(filename, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
         return filename

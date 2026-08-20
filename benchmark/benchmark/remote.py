@@ -398,6 +398,17 @@ class Bench:
                             bench_parameters.tx_size, 
                         ))
                         logger.export_latency_csv()
+                        wave_length = (
+                            node_parameters.json.get('sigma', 1)
+                            * node_parameters.json.get('kappa', 2)
+                        )
+                        timing_csv = logger.export_round_wave_timing_csv(
+                            wave_length=wave_length,
+                        )
+                        if timing_csv:
+                            Print.info(
+                                f'Round/wave timing CSV exported to: {timing_csv}'
+                            )
                         PathMaker.export_run_artifacts()
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:
                         self.kill(hosts=selected_hosts)

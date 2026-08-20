@@ -1530,6 +1530,12 @@ class CloudLabBench:
             result = LogParser.process(PathMaker.logs_path(), faults=faults)
             print(result.result())
             result.print(PathMaker.summary_file())
+            wave_length = committee.json['sigma'] * committee.json['kappa']
+            timing_csv = result.export_round_wave_timing_csv(
+                wave_length=wave_length,
+            )
+            if timing_csv:
+                Print.info(f'Round/wave timing CSV exported to: {timing_csv}')
             return
         
         # Run download_logs.py to download all logs

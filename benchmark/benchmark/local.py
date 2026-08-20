@@ -255,6 +255,11 @@ class LocalBench:
                 rate,
                 self.tx_size,
             ))
+            timing_csv = logger.export_round_wave_timing_csv(
+                wave_length=self.sigma * self.kappa,
+            )
+            if timing_csv:
+                Print.info(f'Round/wave timing CSV exported to: {timing_csv}')
             PathMaker.export_run_artifacts()
             return logger
 

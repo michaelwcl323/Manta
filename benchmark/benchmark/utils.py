@@ -105,6 +105,10 @@ class PathMaker:
         return join(PathMaker.results_path(), 'latency.csv')
 
     @staticmethod
+    def round_wave_timing_csv_file():
+        return join(PathMaker.results_path(), 'round_wave_timing.csv')
+
+    @staticmethod
     def final_dag_file():
         return join(PathMaker.results_path(), 'final_dag.txt')
 

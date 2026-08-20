@@ -84,6 +84,7 @@ def process_logs(faults=0, save_to_file=True):
         parser = LogParser.process(logs_dir, faults=faults)
         result = parser.result()
         latency_csv = parser.export_latency_csv()
+        timing_csv = parser.export_round_wave_timing_csv()
 
         # Derive attack-time alignment metadata so plotting scripts can place
         # attack markers on the same time axis as latency.csv.
@@ -171,6 +172,8 @@ def process_logs(faults=0, save_to_file=True):
             Print.info(f'\nResults saved to: {result_file}')
             if latency_csv:
                 Print.info(f'Latency CSV exported to: {latency_csv}')
+            if timing_csv:
+                Print.info(f'Round/wave timing CSV exported to: {timing_csv}')
         
         artifacts = PathMaker.export_run_artifacts()
         if 'final_dag' in artifacts:

@@ -214,7 +214,11 @@ def kill(ctx):
 def logs(ctx):
     ''' Print a summary of the logs '''
     try:
-        print(LogParser.process(PathMaker.logs_path(), faults='?').result())
+        parser = LogParser.process(PathMaker.logs_path(), faults='?')
+        print(parser.result())
+        timing_csv = parser.export_round_wave_timing_csv()
+        if timing_csv:
+            Print.info(f'Round/wave timing CSV exported to: {timing_csv}')
     except ParseError as e:
         Print.error(BenchError('Failed to parse logs', e))
 
