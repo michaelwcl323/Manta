@@ -563,12 +563,17 @@ class LogParser:
         )
 
     def export_round_wave_timing_csv(self, filename=None, wave_length=None):
-        """Export per-round and per-wave header creation spans.
+        """Export per-round and per-wave progression durations.
 
-        A round spans from the first to the last primary that creates a header
-        for that round. A wave spans all observed header creation events in its
-        ``sigma * kappa`` rounds. Incomplete rounds/waves remain in the table and
-        are explicitly marked as such.
+        A round starts at the earliest header-creation timestamp observed for
+        that round, and its duration ends when the next round starts. A wave
+        starts with its first round and ends when the next wave starts. Thus:
+
+        ``round N duration = round N+1 start - round N start``
+        ``wave N duration = wave N+1 start - wave N start``
+
+        The final round/wave has an empty duration because its successor's start
+        is not present. Incomplete observations remain explicitly marked.
         """
         filename = filename or PathMaker.round_wave_timing_csv_file()
         wave_length = wave_length or self._configured_wave_length()
@@ -590,13 +595,17 @@ class LogParser:
         if not samples_by_round:
             return None
 
-        baseline = min(min(samples) for samples in samples_by_round.values())
+        round_starts = {
+            round_number: min(samples)
+            for round_number, samples in samples_by_round.items()
+        }
+        baseline = min(round_starts.values())
         primary_count = len(self.round_timestamps)
         rows = []
         for round_number in sorted(samples_by_round):
             samples = samples_by_round[round_number]
-            start = min(samples)
-            end = max(samples)
+            start = round_starts[round_number]
+            next_start = round_starts.get(round_number + 1)
             wave = (round_number - 1) // wave_length + 1
             rows.append({
                 'scope': 'round',
@@ -605,9 +614,15 @@ class LogParser:
                 'round_start': round_number,
                 'round_end': round_number,
                 'start_timestamp_utc': self._format_utc(start),
-                'end_timestamp_utc': self._format_utc(end),
+                'next_start_timestamp_utc': (
+                    self._format_utc(next_start) if next_start is not None else ''
+                ),
                 'start_elapsed_ms': round((start - baseline) * 1000, 3),
-                'duration_ms': round((end - start) * 1000, 3),
+                'duration_ms': (
+                    round((next_start - start) * 1000, 3)
+                    if next_start is not None
+                    else ''
+                ),
                 'observed_rounds': 1,
                 'min_observed_primaries': len(samples),
                 'complete': len(samples) == primary_count,
@@ -625,13 +640,8 @@ class LogParser:
             ]
             if not observed:
                 continue
-            samples = [
-                timestamp
-                for round_number in observed
-                for timestamp in samples_by_round[round_number]
-            ]
-            start = min(samples)
-            end = max(samples)
+            start = round_starts.get(round_start)
+            next_start = round_starts.get(round_end + 1)
             complete = (
                 len(observed) == wave_length
                 and all(
@@ -645,10 +655,22 @@ class LogParser:
                 'wave': wave,
                 'round_start': round_start,
                 'round_end': round_end,
-                'start_timestamp_utc': self._format_utc(start),
-                'end_timestamp_utc': self._format_utc(end),
-                'start_elapsed_ms': round((start - baseline) * 1000, 3),
-                'duration_ms': round((end - start) * 1000, 3),
+                'start_timestamp_utc': (
+                    self._format_utc(start) if start is not None else ''
+                ),
+                'next_start_timestamp_utc': (
+                    self._format_utc(next_start) if next_start is not None else ''
+                ),
+                'start_elapsed_ms': (
+                    round((start - baseline) * 1000, 3)
+                    if start is not None
+                    else ''
+                ),
+                'duration_ms': (
+                    round((next_start - start) * 1000, 3)
+                    if start is not None and next_start is not None
+                    else ''
+                ),
                 'observed_rounds': len(observed),
                 'min_observed_primaries': min(
                     len(samples_by_round[round_number])
@@ -668,7 +690,7 @@ class LogParser:
             'round_start',
             'round_end',
             'start_timestamp_utc',
-            'end_timestamp_utc',
+            'next_start_timestamp_utc',
             'start_elapsed_ms',
             'duration_ms',
             'observed_rounds',

@@ -45,14 +45,15 @@ class RoundWaveTimingTests(unittest.TestCase):
             row for row in rows if row['scope'] == 'wave' and row['index'] == '2'
         )
 
-        self.assertEqual(round_one['duration_ms'], '200.0')
+        self.assertEqual(round_one['duration_ms'], '1000.0')
         self.assertEqual(round_one['min_observed_primaries'], '2')
         self.assertEqual(wave_one['round_start'], '1')
         self.assertEqual(wave_one['round_end'], '4')
-        self.assertEqual(wave_one['duration_ms'], '3400.0')
+        self.assertEqual(wave_one['duration_ms'], '4000.0')
         self.assertEqual(wave_one['complete'], 'True')
         self.assertEqual(wave_two['observed_rounds'], '1')
         self.assertEqual(wave_two['complete'], 'False')
+        self.assertEqual(wave_two['duration_ms'], '')
 
 
 if __name__ == '__main__':
