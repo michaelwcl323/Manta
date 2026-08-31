@@ -294,7 +294,8 @@ impl Proposer {
                         unlock_order,
                     },
                 );
-                debug!(
+                // NOTE: This log entry is used to compute per-round timing in benchmarks.
+                info!(
                     "Unlocked proposal round {} (unlock order {})",
                     round, unlock_order
                 );
@@ -570,7 +571,8 @@ impl Proposer {
 
     // Main loop listening to incoming messages.
     pub async fn run(&mut self) {
-        debug!("Dag starting with bootstrap round 1 unlocked");
+        // NOTE: This log entry is used to compute per-round timing in benchmarks.
+        info!("Dag starting with bootstrap round 1 unlocked");
 
         let mut proposal_deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
         let mut critical_payload_deadline: Option<Instant> = None;
