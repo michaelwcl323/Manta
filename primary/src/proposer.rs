@@ -62,6 +62,9 @@ pub struct Proposer {
     solid_step_length: u64,
     /// The solid wave length.
     solid_wave_length: u64,
+    /// Highest solid-wave index observed via unlock so far.
+    /// Intermediate rounds belonging to older waves are dropped once a newer wave starts.
+    latest_observed_wave: Round,
     /// Short grace period after parents become ready to absorb late certificates.
     parent_grace_delay: Duration,
 }
@@ -160,6 +163,7 @@ impl Proposer {
                 critical_payload_size: 0,
                 solid_step_length,
                 solid_wave_length,
+                latest_observed_wave: 0,
                 parent_grace_delay: Duration::from_millis(parent_grace_delay_ms),
             }
             .run()
@@ -209,6 +213,46 @@ impl Proposer {
 
     fn is_critical_round(&self, round: Round) -> bool {
         round > 1 && (round - 1) % self.solid_step_length == 0
+    }
+
+    fn is_intermediate_round(&self, round: Round) -> bool {
+        round > 1 && !self.is_critical_round(round)
+    }
+
+    fn wave_of(&self, round: Round) -> Round {
+        if self.solid_wave_length == 0 {
+            return 0;
+        }
+        round.saturating_sub(1) / self.solid_wave_length
+    }
+
+    fn is_stale_intermediate_round(&self, round: Round) -> bool {
+        self.is_intermediate_round(round) && self.wave_of(round) < self.latest_observed_wave
+    }
+
+    /// Once a newer solid wave has started, drop unlocked intermediate rounds
+    /// that still belong to earlier waves — they should no longer be proposed.
+    fn drop_stale_wave_intermediate_rounds(&mut self) {
+        if self.latest_observed_wave == 0 {
+            return;
+        }
+
+        let stale_rounds: Vec<_> = self
+            .unlocked_rounds
+            .keys()
+            .copied()
+            .filter(|round| self.is_stale_intermediate_round(*round))
+            .collect();
+
+        for stale_round in stale_rounds {
+            self.unlocked_rounds.remove(&stale_round);
+            debug!(
+                "Dropping intermediate round {} because its wave {} ended (active wave {})",
+                stale_round,
+                self.wave_of(stale_round),
+                self.latest_observed_wave
+            );
+        }
     }
 
     fn is_round_ready(&self, round: Round, state: &UnlockedRound) -> bool {
@@ -261,10 +305,26 @@ impl Proposer {
     }
 
     fn unlock_round(&mut self, round: Round, parent_update: ProposalParents) {
+        let round_wave = self.wave_of(round);
+        if round_wave > self.latest_observed_wave {
+            self.latest_observed_wave = round_wave;
+            self.drop_stale_wave_intermediate_rounds();
+        }
+
         if self.proposed_rounds.contains(&round) {
             debug!(
                 "Received stale parents for already proposed round {}",
                 round
+            );
+            return;
+        }
+
+        // After a wave ends, intermediate rounds from that wave must not continue.
+        if self.is_stale_intermediate_round(round) {
+            self.unlocked_rounds.remove(&round);
+            debug!(
+                "Discarding intermediate round {} because its wave {} already ended (active wave {})",
+                round, round_wave, self.latest_observed_wave
             );
             return;
         }
@@ -353,6 +413,7 @@ impl Proposer {
                 !self.proposed_rounds.contains(round)
                     && !state.parents.is_empty()
                     && self.round_class(**round) == RoundClass::Intermediate
+                    && !self.is_stale_intermediate_round(**round)
                     && self.is_round_ready(**round, state)
             })
             .min_by_key(|(_, state)| state.unlock_order)

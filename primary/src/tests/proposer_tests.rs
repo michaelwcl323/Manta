@@ -102,6 +102,7 @@ async fn propose_payload() {
         critical_payload_size: 32,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -165,6 +166,7 @@ async fn intermediate_round_still_proposes_empty_with_single_worker() {
         critical_payload_size: 32,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -228,6 +230,7 @@ async fn single_worker_never_uses_intermediate_payload_queue() {
         critical_payload_size: 0,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -273,6 +276,7 @@ async fn adaptive_spill_prefers_critical_until_small_intermediate_window_fills()
         critical_payload_size: 0,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -336,6 +340,7 @@ async fn intermediate_round_uses_payload_from_dedicated_queue() {
         critical_payload_size: 32,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -396,6 +401,7 @@ async fn critical_unlock_keeps_existing_intermediate_round() {
         critical_payload_size: 0,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
@@ -441,10 +447,103 @@ async fn intermediate_round_is_kept_after_critical_started() {
         critical_payload_size: 0,
         solid_step_length: committee.solid_step_length(),
         solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
         parent_grace_delay: Duration::from_millis(0),
     };
 
     proposer.unlock_round(2, ProposalParents::from(vec![genesis_parent]));
 
     assert!(proposer.unlocked_rounds.contains_key(&2));
+}
+
+#[tokio::test]
+async fn wave_end_drops_intermediate_rounds_from_previous_wave() {
+    let committee = committee();
+    let (name, secret) = keys().pop().unwrap();
+    let signature_service = SignatureService::new(secret);
+    let genesis_parent = Certificate::genesis(&committee)
+        .iter()
+        .next()
+        .unwrap()
+        .digest();
+    let (_tx_parents, rx_parents) = channel::<(ProposalParents, Round)>(1);
+    let (_tx_our_digests, rx_our_digests) = channel::<(Digest, WorkerId)>(1);
+    let (tx_headers, _rx_headers) = channel::<Header>(1);
+
+    let mut unlocked_rounds = HashMap::new();
+    unlocked_rounds.insert(
+        2,
+        UnlockedRound {
+            parents: vec![genesis_parent.clone()],
+            solid_step_union: HashSet::new(),
+            solid_wave_union: HashSet::new(),
+            wave_back_link_target_round: 0,
+            wave_back_link_author_bitmap: Vec::new(),
+            ready_since: Instant::now(),
+            unlock_order: 0,
+        },
+    );
+    unlocked_rounds.insert(
+        4,
+        UnlockedRound {
+            parents: vec![genesis_parent.clone()],
+            solid_step_union: HashSet::new(),
+            solid_wave_union: HashSet::new(),
+            wave_back_link_target_round: 0,
+            wave_back_link_author_bitmap: Vec::new(),
+            ready_since: Instant::now(),
+            unlock_order: 1,
+        },
+    );
+    unlocked_rounds.insert(
+        3,
+        UnlockedRound {
+            parents: vec![genesis_parent.clone()],
+            solid_step_union: HashSet::new(),
+            solid_wave_union: HashSet::new(),
+            wave_back_link_target_round: 0,
+            wave_back_link_author_bitmap: Vec::new(),
+            ready_since: Instant::now(),
+            unlock_order: 2,
+        },
+    );
+
+    let mut proposer = Proposer {
+        name,
+        node_id: None,
+        signature_service,
+        header_size: 32,
+        max_header_delay: 1_000,
+        rx_core: rx_parents,
+        rx_workers: rx_our_digests,
+        tx_core: tx_headers,
+        local_workers: 2,
+        enable_adaptive_intermediate_spill: false,
+        adaptive_intermediate_spill_trigger_digests: 2,
+        adaptive_intermediate_spill_cap_digests: 1,
+        unlocked_rounds,
+        proposed_rounds: HashSet::new(),
+        next_unlock_order: 3,
+        intermediate_digests: VecDeque::new(),
+        intermediate_payload_size: 0,
+        critical_digests: VecDeque::new(),
+        critical_payload_size: 0,
+        solid_step_length: committee.solid_step_length(),
+        solid_wave_length: committee.solid_wave_length(),
+        latest_observed_wave: 0,
+        parent_grace_delay: Duration::from_millis(0),
+    };
+
+    // Round 5 starts the next solid wave (σ=κ=2 ⇒ wave length 4).
+    proposer.unlock_round(5, ProposalParents::from(vec![genesis_parent.clone()]));
+
+    assert!(!proposer.unlocked_rounds.contains_key(&2));
+    assert!(!proposer.unlocked_rounds.contains_key(&4));
+    assert!(proposer.unlocked_rounds.contains_key(&3));
+    assert!(proposer.unlocked_rounds.contains_key(&5));
+    assert_eq!(proposer.latest_observed_wave, 1);
+
+    // Late unlock of a previous-wave intermediate must also be rejected.
+    proposer.unlock_round(2, ProposalParents::from(vec![genesis_parent]));
+    assert!(!proposer.unlocked_rounds.contains_key(&2));
 }
