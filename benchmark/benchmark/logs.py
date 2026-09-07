@@ -339,6 +339,10 @@ class LogParser:
             ('Attack limit certificates', 'attack_limit_certificates'),
             ('Enable adaptive intermediate spill', 'enable_adaptive_intermediate_spill'),
             (
+                'Enable intermediate wave boundary',
+                'enable_intermediate_wave_boundary',
+            ),
+            (
                 'Adaptive intermediate spill trigger digests',
                 'adaptive_intermediate_spill_trigger_digests',
             ),

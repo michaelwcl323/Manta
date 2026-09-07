@@ -247,17 +247,27 @@ def cloudlab_install(ctx):
         Print.error(e)
 
 @task
-def cloudlab_wan(ctx, action='setup', settings_file='cloudlab_settings.json'):
-    ''' Emulate WAN RTT between sites (tc netem). action=setup|clear. Optional settings_file=... '''
+def cloudlab_wan(ctx, action='setup', settings_file='cloudlab_settings.json', profile=None):
+    ''' Emulate WAN RTT between sites (tc netem). action=setup|clear. Optional profile=lan|geo. '''
     try:
-        w = CloudLabWan(settings_file=settings_file)
+        w = CloudLabWan(settings_file=settings_file, profile=profile)
         act = (action or 'setup').lower()
         if act == 'setup':
             w.setup()
+            if profile:
+                w._remember_mode(str(profile))
         elif act == 'clear':
             w.clear()
         else:
             Print.error('cloudlab_wan: use action=setup or action=clear')
+    except BenchError as e:
+        Print.error(e)
+
+@task
+def cloudlab_network(ctx, mode='lan', settings_file='cloudlab_settings.json'):
+    ''' Switch experiment network: mode=lan (80ms homogeneous) | geo (paper N2 clusters). '''
+    try:
+        CloudLabWan(settings_file=settings_file).apply_mode(mode)
     except BenchError as e:
         Print.error(e)
 
@@ -267,29 +277,30 @@ def cloudlab_remote(
     debug=False,
     sigma=1,
     kappa=2,
-    reference=7,
+    reference=2,
     coverage=7,
 
 
-    allow_cross_step_weak_edges=False,
+    allow_cross_step_weak_edges=True,
 
 
     enable_fast_coin=False,
-    solid_commit_trigger_on_solid_step=False,
-    enable_commit_recheck=False,
+    solid_commit_trigger_on_solid_step=True,
+    enable_commit_recheck=True,
     fast_coin_candidate_threshold=0,
     solid_candidate_threshold=0,
 
-    attack_enabled=True,
+    attack_enabled=False,
     attack_start_secs=60,
     attack_duration_secs=1000,
     attack_group_size=5,
     attack_limit_headers=False,
     attack_limit_certificates=True,
 
-    enable_adaptive_intermediate_spill=False, # payload shceduling
+    enable_adaptive_intermediate_spill=True, # payload shceduling
     adaptive_intermediate_spill_trigger_digests=2,
     adaptive_intermediate_spill_cap_digests=1,
+    enable_intermediate_wave_boundary=False,
 
     design_tag='experiment2_attack_final',
     network_tag='geo',
@@ -304,6 +315,7 @@ def cloudlab_remote(
     attack_limit_headers = _coerce_bool(attack_limit_headers)
     attack_limit_certificates = _coerce_bool(attack_limit_certificates)
     enable_adaptive_intermediate_spill = _coerce_bool(enable_adaptive_intermediate_spill)
+    enable_intermediate_wave_boundary = _coerce_bool(enable_intermediate_wave_boundary)
     bench_params = {
         'faults': 0,
         'nodes': [10],
@@ -316,7 +328,7 @@ def cloudlab_remote(
         # 'rate': [130000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 1,       
+        'runs': 3,       
     }
 
     #  'max_header_delay': 80,  # ms
@@ -349,6 +361,7 @@ def cloudlab_remote(
         'enable_adaptive_intermediate_spill': enable_adaptive_intermediate_spill,
         'adaptive_intermediate_spill_trigger_digests': int(adaptive_intermediate_spill_trigger_digests),
         'adaptive_intermediate_spill_cap_digests': int(adaptive_intermediate_spill_cap_digests),
+        'enable_intermediate_wave_boundary': enable_intermediate_wave_boundary,
         'design_tag': design_tag,
         'network_tag': network_tag,
         'load_tag': load_tag,

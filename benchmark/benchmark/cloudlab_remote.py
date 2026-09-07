@@ -1870,6 +1870,7 @@ SCRIPTEOF'''
                                             'attack_limit_headers',
                                             'attack_limit_certificates',
                                             'enable_adaptive_intermediate_spill',
+                                            'enable_intermediate_wave_boundary',
                                             'adaptive_intermediate_spill_trigger_digests',
                                             'adaptive_intermediate_spill_cap_digests',
                                             'design_tag',

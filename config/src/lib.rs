@@ -66,6 +66,10 @@ fn default_adaptive_intermediate_spill_cap_digests() -> usize {
     1
 }
 
+fn default_enable_intermediate_wave_boundary() -> bool {
+    false
+}
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("Node {0} is not in the committee")]
@@ -147,6 +151,10 @@ pub struct Parameters {
     /// digests back to the critical queue.
     #[serde(default = "default_adaptive_intermediate_spill_cap_digests")]
     pub adaptive_intermediate_spill_cap_digests: usize,
+    /// When true, drop unlocked intermediate rounds from earlier solid waves once a newer
+    /// wave has started (and reject late unlocks for those stale intermediates).
+    #[serde(default = "default_enable_intermediate_wave_boundary")]
+    pub enable_intermediate_wave_boundary: bool,
 }
 
 impl Default for Parameters {
@@ -162,6 +170,7 @@ impl Default for Parameters {
             enable_adaptive_intermediate_spill: false,
             adaptive_intermediate_spill_trigger_digests: 2,
             adaptive_intermediate_spill_cap_digests: 1,
+            enable_intermediate_wave_boundary: false,
         }
     }
 }
@@ -188,6 +197,10 @@ impl Parameters {
         info!(
             "Adaptive intermediate spill cap set to {} digests",
             self.adaptive_intermediate_spill_cap_digests
+        );
+        info!(
+            "Intermediate wave boundary set to {}",
+            self.enable_intermediate_wave_boundary
         );
     }
 }

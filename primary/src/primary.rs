@@ -195,6 +195,7 @@ impl Primary {
             parameters.enable_adaptive_intermediate_spill,
             parameters.adaptive_intermediate_spill_trigger_digests,
             parameters.adaptive_intermediate_spill_cap_digests,
+            parameters.enable_intermediate_wave_boundary,
             /* rx_core */ rx_parents,
             /* rx_workers */ rx_our_digests,
             /* tx_core */ tx_headers,

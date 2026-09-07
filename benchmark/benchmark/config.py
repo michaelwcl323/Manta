@@ -231,6 +231,7 @@ class NodeParameters:
 
         optional_bool_fields = [
             'enable_adaptive_intermediate_spill',
+            'enable_intermediate_wave_boundary',
             'attack_enabled',
             'attack_limit_headers',
             'attack_limit_certificates',

@@ -4,9 +4,7 @@ use crate::primary::Round;
 use config::{Committee, WorkerId};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
-use log::debug;
-#[cfg(feature = "benchmark")]
-use log::info;
+use log::{debug, info};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep_until, Duration, Instant};
@@ -43,6 +41,8 @@ pub struct Proposer {
     adaptive_intermediate_spill_trigger_digests: usize,
     /// Maximum number of digests to keep in the intermediate spill window.
     adaptive_intermediate_spill_cap_digests: usize,
+    /// When true, drop intermediate rounds from earlier waves once a newer wave starts.
+    enable_intermediate_wave_boundary: bool,
 
     /// Unlocked proposal rounds waiting to be materialized into headers.
     unlocked_rounds: HashMap<Round, UnlockedRound>,
@@ -103,6 +103,7 @@ impl Proposer {
         enable_adaptive_intermediate_spill: bool,
         adaptive_intermediate_spill_trigger_digests: usize,
         adaptive_intermediate_spill_cap_digests: usize,
+        enable_intermediate_wave_boundary: bool,
         rx_core: Receiver<(ProposalParents, Round)>,
         rx_workers: Receiver<(Digest, WorkerId)>,
         tx_core: Sender<Header>,
@@ -154,6 +155,7 @@ impl Proposer {
                 enable_adaptive_intermediate_spill,
                 adaptive_intermediate_spill_trigger_digests,
                 adaptive_intermediate_spill_cap_digests,
+                enable_intermediate_wave_boundary,
                 unlocked_rounds,
                 proposed_rounds: HashSet::new(),
                 next_unlock_order: 1,
@@ -227,13 +229,15 @@ impl Proposer {
     }
 
     fn is_stale_intermediate_round(&self, round: Round) -> bool {
-        self.is_intermediate_round(round) && self.wave_of(round) < self.latest_observed_wave
+        self.enable_intermediate_wave_boundary
+            && self.is_intermediate_round(round)
+            && self.wave_of(round) < self.latest_observed_wave
     }
 
     /// Once a newer solid wave has started, drop unlocked intermediate rounds
     /// that still belong to earlier waves — they should no longer be proposed.
     fn drop_stale_wave_intermediate_rounds(&mut self) {
-        if self.latest_observed_wave == 0 {
+        if !self.enable_intermediate_wave_boundary || self.latest_observed_wave == 0 {
             return;
         }
 
@@ -306,7 +310,7 @@ impl Proposer {
 
     fn unlock_round(&mut self, round: Round, parent_update: ProposalParents) {
         let round_wave = self.wave_of(round);
-        if round_wave > self.latest_observed_wave {
+        if self.enable_intermediate_wave_boundary && round_wave > self.latest_observed_wave {
             self.latest_observed_wave = round_wave;
             self.drop_stale_wave_intermediate_rounds();
         }

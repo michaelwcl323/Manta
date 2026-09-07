@@ -279,6 +279,13 @@ Examples:
                        help='Minimum number of critical-queue digests required before adaptive spill may route new digests to the intermediate queue')
     parser.add_argument('--adaptive-intermediate-spill-cap-digests', type=int, default=1,
                        help='Maximum number of digests to keep in the intermediate spill window before routing new digests back to the critical queue')
+    parser.add_argument('--intermediate-wave-boundary', dest='enable_intermediate_wave_boundary',
+                       action='store_true',
+                       help='Drop intermediate rounds from earlier solid waves once a newer wave has started')
+    parser.add_argument('--no-intermediate-wave-boundary', dest='enable_intermediate_wave_boundary',
+                       action='store_false',
+                       help='Allow intermediate rounds from earlier waves to keep proposing after a newer wave starts')
+    parser.set_defaults(enable_intermediate_wave_boundary=False)
     parser.add_argument('--design-tag', default='manta',
                        help='Design tag written to summary and run directory name (default: manta)')
     parser.add_argument('--network-tag', default='default_network',
@@ -346,6 +353,7 @@ Examples:
                 'enable_adaptive_intermediate_spill': args.enable_adaptive_intermediate_spill,
                 'adaptive_intermediate_spill_trigger_digests': args.adaptive_intermediate_spill_trigger_digests,
                 'adaptive_intermediate_spill_cap_digests': args.adaptive_intermediate_spill_cap_digests,
+                'enable_intermediate_wave_boundary': args.enable_intermediate_wave_boundary,
                 'design_tag': args.design_tag,
                 'network_tag': args.network_tag,
                 'load_tag': args.load_tag,

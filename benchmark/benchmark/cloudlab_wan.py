@@ -6,13 +6,17 @@ Matrix values are round-trip times (ms). Each host adds one-way delay RTT/2 on
 marked egress to peers (symmetric path).
 
 Site resolution is adapted to this repository's CloudLab settings format:
-1. `cloudlab_wan.hosts[].wan_site` override matched by hostname
-2. top-level `hosts[].wan_site`
-3. top-level `hosts[].region`
-4. `cloudlab_wan.octet2_site` fallback inferred from 10.{octet}.*
+1. `cloudlab_wan.site_by_host_index` (ordered by settings hosts list)
+2. `cloudlab_wan.hosts[].wan_site` override matched by hostname
+3. top-level `hosts[].wan_site`
+4. top-level `hosts[].region`
+5. `cloudlab_wan.octet2_site` fallback inferred from 10.{octet}.*
 
 Site names are normalized to lowercase_with_underscores. Same-site traffic
 defaults to 0ms RTT when no explicit rule is provided.
+
+Network mode profiles live in `benchmark/network_profiles/{lan,geo}.json`
+and can override the `cloudlab_wan` block via `CloudLabWan(..., profile=...)`.
 
 Requires: sudo, tc (sch_htb sch_netem), iptables mangle. TCP/22 is excluded
 from delay.
@@ -324,7 +328,58 @@ def _merge_host_info(host_info: list[dict], wan_cfg: dict | None) -> list[dict]:
         key = host['hostname'].split(':')[0].strip()
         override = overrides.get(key, {})
         merged.append({**host, **override, 'hostname': host['hostname']})
-    return merged
+    return _apply_site_by_host_index(merged, wan_cfg)
+
+
+def _apply_site_by_host_index(host_info: list[dict], wan_cfg: dict | None) -> list[dict]:
+    if not isinstance(wan_cfg, dict):
+        return host_info
+    sites = wan_cfg.get('site_by_host_index')
+    if sites is None:
+        return host_info
+    if not isinstance(sites, list):
+        raise BenchError(
+            'cloudlab_wan.site_by_host_index must be a list',
+            TypeError(type(sites)),
+        )
+    if len(sites) != len(host_info):
+        raise BenchError(
+            f'site_by_host_index has {len(sites)} entries but there are {len(host_info)} hosts',
+            ValueError(len(sites)),
+        )
+    out = []
+    for host, site in zip(host_info, sites):
+        out.append({**host, 'wan_site': _normalize_site(site)})
+    return out
+
+
+def _load_wan_profile(profile: str | Path | None, settings_dir: Path) -> dict | None:
+    if profile is None or profile == '':
+        return None
+    name = str(profile).strip()
+    path = Path(name)
+    if not path.is_absolute():
+        candidates = [
+            settings_dir / name,
+            settings_dir / 'network_profiles' / name,
+            settings_dir / 'network_profiles' / f'{name}.json',
+            Path(name),
+        ]
+        path = next((p for p in candidates if p.is_file()), candidates[-1])
+    if not path.is_file():
+        raise BenchError(f'WAN profile not found: {profile}', FileNotFoundError(str(path)))
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise BenchError(f'Failed to load WAN profile {path}', e) from e
+    if isinstance(data, dict) and isinstance(data.get('cloudlab_wan'), dict):
+        return data['cloudlab_wan']
+    if isinstance(data, dict) and 'rtt_ms' in data:
+        return data
+    raise BenchError(
+        f'WAN profile {path} must contain cloudlab_wan or rtt_ms',
+        ValueError(path),
+    )
 
 
 def _site_for_host(host: dict, octet2_site: dict[str, str]) -> str:
@@ -432,13 +487,21 @@ WANCLR
 
 
 class CloudLabWan:
-    def __init__(self, settings_file: str = 'cloudlab_settings.json'):
+    def __init__(
+        self,
+        settings_file: str = 'cloudlab_settings.json',
+        profile: str | None = None,
+    ):
         self.settings_path = Path(settings_file)
         if not self.settings_path.is_absolute():
             self.settings_path = Path(__file__).resolve().parent.parent / settings_file
         self.manager = CloudLabInstanceManager.make(str(self.settings_path))
         self._raw = _load_raw_settings(self.settings_path)
         self._wan_cfg = self._raw.get('cloudlab_wan') or {}
+        self.profile = profile
+        overlay = _load_wan_profile(profile, self.settings_path.parent)
+        if overlay is not None:
+            self._wan_cfg = overlay
 
     def _conn_kwargs(self) -> dict:
         return _connect_kwargs_from_settings(self.settings_path)
@@ -456,6 +519,13 @@ class CloudLabWan:
             raise BenchError('cloudlab_wan.rtt_ms must be an object', TypeError(type(raw)))
         return _parse_rtt_matrix(raw)
 
+    def _remember_mode(self, mode: str) -> None:
+        path = self.settings_path.parent / '.network_mode'
+        try:
+            path.write_text(mode.strip().lower() + '\n')
+        except OSError:
+            pass
+
     def setup(self) -> None:
         host_info = _merge_host_info(self.manager.get_host_info(), self._wan_cfg)
         oct2 = self._octet2_site()
@@ -465,6 +535,11 @@ class CloudLabWan:
         members = _site_members(plan)
 
         Print.heading('CloudLab WAN: tc netem (symmetric RTT/2 per hop)')
+        if self.profile:
+            Print.info(f'profile: {self.profile}')
+        comment = self._wan_cfg.get('comment') if isinstance(self._wan_cfg, dict) else None
+        if comment:
+            Print.info(str(comment))
         Print.info(f'octet2_site map: {oct2}')
         Print.info(f'sites: {sites}')
         for site in sites:
@@ -506,4 +581,27 @@ class CloudLabWan:
                 g.run(script, hide=True, warn=True)
         except GroupException as e:
             Print.warn(f'cloudlab_wan clear: {e}')
+        self._remember_mode('clear')
         Print.info('cloudlab_wan: cleared.')
+
+    def apply_mode(self, mode: str) -> str:
+        m = (mode or '').strip().lower()
+        if m in ('lan', 'homogeneous', '80'):
+            profile = 'lan'
+            label = 'LAN (homogeneous 80ms RTT)'
+        elif m in ('geo', 'heterogeneous', 'n2', 'wan'):
+            profile = 'geo'
+            label = 'GEO (paper N2 clusters 6+3+1)'
+        else:
+            raise BenchError('cloudlab_network: use mode=lan or mode=geo', ValueError(mode))
+
+        Print.heading(f'Switching network → {label}')
+        self.profile = profile
+        overlay = _load_wan_profile(profile, self.settings_path.parent)
+        if overlay is None:
+            raise BenchError(f'Missing network profile: {profile}', FileNotFoundError(profile))
+        self._wan_cfg = overlay
+        self.setup()
+        self._remember_mode(profile)
+        Print.info(f'Network is {profile}. Tip: pass network_tag={profile} when running cloudlab-remote.')
+        return profile
