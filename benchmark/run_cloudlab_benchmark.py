@@ -281,10 +281,10 @@ Examples:
                        help='Maximum number of digests to keep in the intermediate spill window before routing new digests back to the critical queue')
     parser.add_argument('--intermediate-wave-boundary', dest='enable_intermediate_wave_boundary',
                        action='store_true',
-                       help='Drop intermediate rounds from earlier solid waves once a newer wave has started')
+                       help='Drop unlocked intermediate rounds once their next solid-step critical has started')
     parser.add_argument('--no-intermediate-wave-boundary', dest='enable_intermediate_wave_boundary',
                        action='store_false',
-                       help='Allow intermediate rounds from earlier waves to keep proposing after a newer wave starts')
+                       help='Keep unlocked intermediate rounds after later critical rounds start')
     parser.set_defaults(enable_intermediate_wave_boundary=False)
     parser.add_argument('--design-tag', default='manta',
                        help='Design tag written to summary and run directory name (default: manta)')

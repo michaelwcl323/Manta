@@ -277,7 +277,7 @@ def cloudlab_remote(
     debug=False,
     sigma=1,
     kappa=2,
-    reference=2,
+    reference=4,
     coverage=7,
 
 
@@ -305,6 +305,7 @@ def cloudlab_remote(
     design_tag='experiment2_attack_final',
     network_tag='geo',
     load_tag='balanced_50_500000_50',
+    runs=1,
 ):
     ''' Run benchmarks on CloudLab '''
     allow_cross_step_weak_edges = _coerce_bool(allow_cross_step_weak_edges)
@@ -328,7 +329,7 @@ def cloudlab_remote(
         # 'rate': [130000],
         'tx_size': 512,
         'duration': 120,
-        'runs': 3,       
+        'runs': int(runs),
     }
 
     #  'max_header_delay': 80,  # ms

@@ -62,9 +62,6 @@ pub struct Proposer {
     solid_step_length: u64,
     /// The solid wave length.
     solid_wave_length: u64,
-    /// Highest solid-wave index observed via unlock so far.
-    /// Intermediate rounds belonging to older waves are dropped once a newer wave starts.
-    latest_observed_wave: Round,
     /// Short grace period after parents become ready to absorb late certificates.
     parent_grace_delay: Duration,
 }
@@ -165,7 +162,6 @@ impl Proposer {
                 critical_payload_size: 0,
                 solid_step_length,
                 solid_wave_length,
-                latest_observed_wave: 0,
                 parent_grace_delay: Duration::from_millis(parent_grace_delay_ms),
             }
             .run()
@@ -221,23 +217,39 @@ impl Proposer {
         round > 1 && !self.is_critical_round(round)
     }
 
-    fn wave_of(&self, round: Round) -> Round {
-        if self.solid_wave_length == 0 {
-            return 0;
+    /// Next solid-step critical round at or after `round`.
+    /// With critical rounds at 1+kσ (k≥1), e.g. σ=2 → 3,5,7,...
+    fn next_critical_round(&self, round: Round) -> Option<Round> {
+        if self.solid_step_length == 0 || round <= 1 {
+            return None;
         }
-        round.saturating_sub(1) / self.solid_wave_length
+        if self.is_critical_round(round) {
+            return Some(round);
+        }
+        let sigma = self.solid_step_length;
+        let rem = (round - 1) % sigma;
+        Some(round + (sigma - rem))
     }
 
-    fn is_stale_intermediate_round(&self, round: Round) -> bool {
+    fn critical_round_started(&self, round: Round) -> bool {
+        self.unlocked_rounds
+            .keys()
+            .chain(self.proposed_rounds.iter())
+            .any(|candidate| self.is_critical_round(*candidate) && *candidate >= round)
+    }
+
+    fn is_obsolete_intermediate_round(&self, round: Round) -> bool {
         self.enable_intermediate_wave_boundary
             && self.is_intermediate_round(round)
-            && self.wave_of(round) < self.latest_observed_wave
+            && self
+                .next_critical_round(round)
+                .map(|next_critical| self.critical_round_started(next_critical))
+                .unwrap_or(false)
     }
 
-    /// Once a newer solid wave has started, drop unlocked intermediate rounds
-    /// that still belong to earlier waves — they should no longer be proposed.
-    fn drop_stale_wave_intermediate_rounds(&mut self) {
-        if !self.enable_intermediate_wave_boundary || self.latest_observed_wave == 0 {
+    /// Drop unlocked intermediate rounds whose next solid-step critical has started.
+    fn drop_obsolete_intermediate_rounds(&mut self, critical_round: Round) {
+        if !self.enable_intermediate_wave_boundary {
             return;
         }
 
@@ -245,16 +257,20 @@ impl Proposer {
             .unlocked_rounds
             .keys()
             .copied()
-            .filter(|round| self.is_stale_intermediate_round(*round))
+            .filter(|round| {
+                self.is_intermediate_round(*round)
+                    && self
+                        .next_critical_round(*round)
+                        .map(|next_critical| next_critical <= critical_round)
+                        .unwrap_or(false)
+            })
             .collect();
 
         for stale_round in stale_rounds {
             self.unlocked_rounds.remove(&stale_round);
             debug!(
-                "Dropping intermediate round {} because its wave {} ended (active wave {})",
-                stale_round,
-                self.wave_of(stale_round),
-                self.latest_observed_wave
+                "Dropping stale intermediate round {} because critical round {} already started",
+                stale_round, critical_round
             );
         }
     }
@@ -309,12 +325,6 @@ impl Proposer {
     }
 
     fn unlock_round(&mut self, round: Round, parent_update: ProposalParents) {
-        let round_wave = self.wave_of(round);
-        if self.enable_intermediate_wave_boundary && round_wave > self.latest_observed_wave {
-            self.latest_observed_wave = round_wave;
-            self.drop_stale_wave_intermediate_rounds();
-        }
-
         if self.proposed_rounds.contains(&round) {
             debug!(
                 "Received stale parents for already proposed round {}",
@@ -323,14 +333,18 @@ impl Proposer {
             return;
         }
 
-        // After a wave ends, intermediate rounds from that wave must not continue.
-        if self.is_stale_intermediate_round(round) {
+        // Once the next solid-step critical has started, that intermediate is obsolete.
+        if self.is_obsolete_intermediate_round(round) {
             self.unlocked_rounds.remove(&round);
             debug!(
-                "Discarding intermediate round {} because its wave {} already ended (active wave {})",
-                round, round_wave, self.latest_observed_wave
+                "Discarding intermediate round {} because its next critical round has already started",
+                round
             );
             return;
+        }
+
+        if self.enable_intermediate_wave_boundary && self.is_critical_round(round) {
+            self.drop_obsolete_intermediate_rounds(round);
         }
 
         match self.unlocked_rounds.get_mut(&round) {
@@ -417,7 +431,7 @@ impl Proposer {
                 !self.proposed_rounds.contains(round)
                     && !state.parents.is_empty()
                     && self.round_class(**round) == RoundClass::Intermediate
-                    && !self.is_stale_intermediate_round(**round)
+                    && !self.is_obsolete_intermediate_round(**round)
                     && self.is_round_ready(**round, state)
             })
             .min_by_key(|(_, state)| state.unlock_order)
@@ -685,6 +699,11 @@ impl Proposer {
                 self.make_header(decision.round, proposal_state, decision.include_payload)
                     .await;
                 self.proposed_rounds.insert(decision.round);
+                if self.enable_intermediate_wave_boundary
+                    && matches!(selected_class, RoundClass::Critical)
+                {
+                    self.drop_obsolete_intermediate_rounds(decision.round);
+                }
                 if decision.include_payload {
                     match selected_class {
                         RoundClass::Critical => critical_payload_deadline = None,

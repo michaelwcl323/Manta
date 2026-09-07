@@ -151,8 +151,8 @@ pub struct Parameters {
     /// digests back to the critical queue.
     #[serde(default = "default_adaptive_intermediate_spill_cap_digests")]
     pub adaptive_intermediate_spill_cap_digests: usize,
-    /// When true, drop unlocked intermediate rounds from earlier solid waves once a newer
-    /// wave has started (and reject late unlocks for those stale intermediates).
+    /// When true, drop unlocked intermediate rounds once their next solid-step
+    /// critical round has started (and reject late unlocks for those intermediates).
     #[serde(default = "default_enable_intermediate_wave_boundary")]
     pub enable_intermediate_wave_boundary: bool,
 }
@@ -199,7 +199,7 @@ impl Parameters {
             self.adaptive_intermediate_spill_cap_digests
         );
         info!(
-            "Intermediate wave boundary set to {}",
+            "Intermediate solid-step boundary set to {}",
             self.enable_intermediate_wave_boundary
         );
     }
