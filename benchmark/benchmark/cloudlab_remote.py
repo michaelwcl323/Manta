@@ -554,21 +554,28 @@ class CloudLabBench:
         host_info = self.manager.get_host_info()
         host_dict = {h['hostname']: h for h in host_info}
         delete_logs_cmd = CommandMaker.clean_logs() if delete_logs else 'true'
-        # Kill benchmark processes by pattern matching
-        # This will kill all processes matching the benchmark patterns
-        # Broad patterns: match release binary and client even if argv layout differs.
+        # Kill benchmark processes by pattern matching.
+        # Broad patterns: binaries, argv variants, wrapper scripts under /tmp.
         kill_cmd = '''
             pkill -9 -f "target/release/node" 2>/dev/null || true
+            pkill -9 -f "target/release/benchmark_client" 2>/dev/null || true
             pkill -9 -f "[./]*node .*-vv run" 2>/dev/null || true
             pkill -9 -f "[./]*node .* run --keys" 2>/dev/null || true
             pkill -9 -f "node.*primary" 2>/dev/null || true
             pkill -9 -f "node.*worker" 2>/dev/null || true
             pkill -9 -f "benchmark_client" 2>/dev/null || true
             pkill -9 -f "/tmp/run_(primary|worker|client)-" 2>/dev/null || true
+            pkill -9 -f "/tmp/run_.*\\.sh" 2>/dev/null || true
+            # Orphan wrappers from prior boots
+            rm -f /tmp/run_primary-*.sh /tmp/run_worker-*.sh /tmp/run_client-*.sh 2>/dev/null || true
             true
         '''
-        # Cleanup database directories and lock files
-        cleanup_db_cmd = 'rm -rf .db-* 2>/dev/null || true'
+        # Cleanup database directories and lock files (repo root and one level down).
+        cleanup_db_cmd = '''
+            rm -rf .db-* ./*.db-* 2>/dev/null || true
+            find . -maxdepth 3 -type d -name '.db-*' -prune -exec rm -rf {} + 2>/dev/null || true
+            true
+        '''
         cmd = [delete_logs_cmd, kill_cmd, cleanup_db_cmd]
         
         # If committee is provided, also kill processes using the ports
@@ -1617,14 +1624,20 @@ SCRIPTEOF'''
 
         faults = bench_parameters.faults
 
-        # 1. Kill any potentially unfinished run and delete logs (same intent as Bench._run_single)
-        Print.info('Killing any existing processes and ports...')
+        # 1. Force-clean leftovers from the previous run (processes, ports, DBs, logs).
+        # Incomplete kills previously correlated with multi-10s commit blackouts.
+        Print.info('Force-cleaning nodes before boot (kill + wipe DB/logs)...')
         self.kill_and_ensure_clean(
-            hosts=selected_hosts, delete_logs=True, committee=committee, faults=faults
+            hosts=selected_hosts,
+            delete_logs=True,
+            committee=committee,
+            faults=faults,
+            retries=10,
+            settle_secs=1.5,
         )
 
-        # Small delay to ensure processes are killed and database cleanup completes
-        sleep(3)
+        # Extra settle so ports/DB locks are released before boot.
+        sleep(5)
 
         # Pre-compute workers' addresses (filtered for faults) – same as Bench._run_single
         workers_addresses = committee.workers_addresses(faults)
@@ -1782,9 +1795,14 @@ SCRIPTEOF'''
         for n in bench_parameters.nodes:
             for rate in bench_parameters.rate:
                 for trigger_attack in trigger_attack_list:
-                    # Always clear leftovers from the previous cell before update/config.
-                    Print.info('Ensuring all residual benchmark processes are stopped...')
-                    self.kill_and_ensure_clean(hosts=selected_hosts, delete_logs=False)
+                    # Always force-clean before update/config (and between parameter cells).
+                    Print.info('Force-cleaning residual processes/DBs before update/config...')
+                    self.kill_and_ensure_clean(
+                        hosts=selected_hosts,
+                        delete_logs=True,
+                        retries=10,
+                        settle_secs=1.5,
+                    )
 
                     # Update nodes (this will also modify attack.rs if trigger_attack is specified)
                     try:

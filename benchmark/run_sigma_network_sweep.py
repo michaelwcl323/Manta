@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Sweep sigma × (optional spill/boundary) × reference on CloudLab.
+"""Sweep sigma × reference × network (geo/lan) on CloudLab.
 
-Default matrix (24 cells × 1 reference):
+Fixed for this sweep:
+  spill = off, boundary = on, runs = 3 (override with flags)
+
+Default matrix (18 cells × 2 networks = 36 fab invocations):
   sigma = 1..6
-  kappa = 2, reference = 2, coverage = 7, runs = 1
-  enable_adaptive_intermediate_spill ∈ {True, False}
-  enable_intermediate_wave_boundary ∈ {True, False}
-  (flag name kept; semantics are solid-step / next-critical cleanup)
+  kappa = 2, reference = 2 4 7, coverage = 7
+  network ∈ {geo, lan}
 
-Example (spill on, boundary off, three references, 3 runs):
-  python run_sigma_spill_boundary_sweep.py \\
-    --sigma 1 2 3 4 5 6 --kappa 2 --reference 2 4 7 --coverage 10 \\
-    --spill on --boundary off --runs 3
+Before each network group, runs:
+  fab cloudlab-network --mode=<geo|lan>
+
+Example:
+  python run_sigma_network_sweep.py
+  python run_sigma_network_sweep.py --network geo --runs 3 --dry-run
+  python run_sigma_network_sweep.py --sigma 1 2 --reference 2 --network lan geo
 """
 
 from __future__ import annotations
@@ -32,63 +36,52 @@ ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 @dataclass(frozen=True)
 class Cell:
     sigma: int
-    spill: bool
-    boundary: bool
     reference: int
+    network: str
 
     def load_tag(self, kappa: int, coverage: int) -> str:
-        spill = "spill_on" if self.spill else "spill_off"
-        bound = "bound_on" if self.boundary else "bound_off"
-        return f"s{self.sigma}_k{kappa}_r{self.reference}_c{coverage}_{spill}_{bound}"
+        # spill fixed off, boundary fixed on for this sweep
+        return (
+            f"s{self.sigma}_k{kappa}_r{self.reference}_c{coverage}"
+            f"_spill_off_bound_on"
+        )
 
     def label(self, kappa: int, coverage: int) -> str:
         return (
-            f"sigma={self.sigma} spill={self.spill} "
-            f"boundary={self.boundary} reference={self.reference} "
+            f"network={self.network} sigma={self.sigma} "
+            f"reference={self.reference} "
             f"load_tag={self.load_tag(kappa, coverage)}"
         )
 
 
-def parse_on_off_both(value: str) -> str:
+def parse_network(value: str) -> str:
     normalized = value.strip().lower()
     aliases = {
-        "on": "on",
-        "true": "on",
-        "1": "on",
-        "off": "off",
-        "false": "off",
-        "0": "off",
-        "both": "both",
-        "all": "both",
+        "geo": "geo",
+        "wan": "geo",
+        "heterogeneous": "geo",
+        "n2": "geo",
+        "lan": "lan",
+        "homogeneous": "lan",
+        "80": "lan",
     }
     if normalized not in aliases:
         raise argparse.ArgumentTypeError(
-            f"expected on/off/both (got {value!r})"
+            f"expected geo/lan (got {value!r})"
         )
     return aliases[normalized]
-
-
-def bool_choices(mode: str) -> tuple[bool, ...]:
-    if mode == "on":
-        return (True,)
-    if mode == "off":
-        return (False,)
-    return (True, False)
 
 
 def build_matrix(
     sigmas: list[int],
     references: list[int],
-    spill_mode: str,
-    boundary_mode: str,
+    networks: list[str],
 ) -> list[Cell]:
+    # Network outermost so we switch tc/netem once per group.
     return [
-        Cell(sigma=sigma, spill=spill, boundary=boundary, reference=reference)
-        for sigma, spill, boundary, reference in itertools.product(
-            sigmas,
-            bool_choices(spill_mode),
-            bool_choices(boundary_mode),
-            references,
+        Cell(sigma=sigma, reference=reference, network=network)
+        for network, sigma, reference in itertools.product(
+            networks, sigmas, references
         )
     ]
 
@@ -96,7 +89,7 @@ def build_matrix(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run fab cloudlab-remote sweeping sigma × spill × boundary × reference."
+            "Sweep sigma × reference × network with spill=off, boundary=on."
         )
     )
     parser.add_argument(
@@ -111,37 +104,32 @@ def parse_args() -> argparse.Namespace:
         "--reference",
         type=int,
         nargs="+",
-        default=[2],
-        help="Reference value(s) to sweep (default: 2).",
+        default=[2, 4, 7],
+        help="Reference value(s) to sweep (default: 2 4 7).",
     )
     parser.add_argument("--coverage", type=int, default=7)
-    parser.add_argument("--runs", type=int, default=3)
     parser.add_argument(
-        "--spill",
-        type=parse_on_off_both,
-        default="both",
-        help="Adaptive intermediate spill: on / off / both (default: both).",
+        "--runs",
+        type=int,
+        default=3,
+        help="Runs per cell (default: 3).",
     )
     parser.add_argument(
-        "--boundary",
-        type=parse_on_off_both,
-        default="both",
-        help="Intermediate solid-step boundary: on / off / both (default: both).",
+        "--network",
+        type=parse_network,
+        nargs="+",
+        default=["geo", "lan"],
+        help="Network modes to sweep (default: geo lan).",
     )
     parser.add_argument(
         "--design-tag",
         default="sigma_spill_boundary",
-        help="design_tag written into result paths (default: sigma_spill_boundary).",
-    )
-    parser.add_argument(
-        "--network-tag",
-        default="geo",
-        help="network_tag for result paths (default: geo).",
+        help="design_tag written into result paths.",
     )
     parser.add_argument(
         "--skip-network-setup",
         action="store_true",
-        help="Do not call fab cloudlab-network for geo/lan network_tag.",
+        help="Do not call fab cloudlab-network before each network group.",
     )
     parser.add_argument(
         "--dry-run",
@@ -174,8 +162,8 @@ def append_invoke_bool(
         cmd.append(f"--no-{name}")
 
 
-def build_cmd(cell: Cell, args: argparse.Namespace) -> list[str]:
-    # Keep in sync with fabfile.cloudlab_remote defaults for these two flags.
+def build_remote_cmd(cell: Cell, args: argparse.Namespace) -> list[str]:
+    # Keep in sync with fabfile.cloudlab_remote defaults for spill/boundary.
     cmd = [
         "fab",
         "cloudlab-remote",
@@ -185,73 +173,28 @@ def build_cmd(cell: Cell, args: argparse.Namespace) -> list[str]:
         f"--coverage={args.coverage}",
         f"--runs={args.runs}",
         f"--design-tag={args.design_tag}",
-        f"--network-tag={args.network_tag}",
+        f"--network-tag={cell.network}",
         f"--load-tag={cell.load_tag(args.kappa, args.coverage)}",
     ]
+    # spill default True in fabfile → need --no-...
     append_invoke_bool(
         cmd,
         "enable-adaptive-intermediate-spill",
-        cell.spill,
+        False,
         default=True,
     )
+    # boundary default False in fabfile → need --...
     append_invoke_bool(
         cmd,
         "enable-intermediate-wave-boundary",
-        cell.boundary,
+        True,
         default=False,
     )
     return cmd
 
 
-def setup_network(network_tag: str, workdir: Path, dry_run: bool, skip: bool) -> int:
-    """Apply CloudLab WAN profile when network_tag is geo or lan."""
-    mode = network_tag.strip().lower()
-    if mode not in ("geo", "lan"):
-        print(
-            f"WARN: network_tag={network_tag!r} is not geo/lan; "
-            "skipping fab cloudlab-network."
-        )
-        return 0
-
-    cmd = ["fab", "cloudlab-network", f"--mode={mode}"]
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print()
-    print(f"=== Network setup → {mode} @ {now} ===")
-    print("Running:", " ".join(cmd))
-    print("-" * 72)
-    if skip:
-        print("(skip-network-setup) leaving current CloudLab WAN profile as-is")
-        print("-" * 72)
-        return 0
-    if dry_run:
-        print("(dry-run) skipped")
-        print("-" * 72)
-        return 0
-
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(workdir),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    saw_internal_error = False
-    for line in process.stdout:
-        print(line, end="")
-        plain = ANSI_ESCAPE_RE.sub("", line)
-        if "ERROR:" in plain:
-            saw_internal_error = True
-    process.wait()
-    rc = process.returncode
-    if rc == 0 and saw_internal_error:
-        rc = 1
-    print("-" * 72)
-    print(f"Exit code: {rc}")
-    return rc
+def build_network_cmd(network: str) -> list[str]:
+    return ["fab", "cloudlab-network", f"--mode={network}"]
 
 
 def run_one(cmd: list[str], step: int, total: int, workdir: Path, dry_run: bool) -> int:
@@ -304,6 +247,50 @@ def run_one(cmd: list[str], step: int, total: int, workdir: Path, dry_run: bool)
     return rc
 
 
+def setup_network(
+    network: str, workdir: Path, dry_run: bool, skip: bool
+) -> int:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cmd = build_network_cmd(network)
+    print()
+    print(f"=== Network setup → {network} @ {now} ===")
+    print("Running:", " ".join(cmd))
+    print("-" * 72)
+    if skip:
+        print("(skip-network-setup) leaving current CloudLab WAN profile as-is")
+        print("-" * 72)
+        return 0
+    if dry_run:
+        print("(dry-run) skipped")
+        print("-" * 72)
+        return 0
+
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(workdir),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    saw_internal_error = False
+    for line in process.stdout:
+        print(line, end="")
+        plain = ANSI_ESCAPE_RE.sub("", line)
+        if "ERROR:" in plain:
+            saw_internal_error = True
+    process.wait()
+    rc = process.returncode
+    if rc == 0 and saw_internal_error:
+        rc = 1
+    print("-" * 72)
+    print(f"Exit code: {rc}")
+    return rc
+
+
 def main() -> int:
     args = parse_args()
     if args.runs <= 0:
@@ -313,7 +300,13 @@ def main() -> int:
         print("Error: --start-from must be >= 1", file=sys.stderr)
         return 2
 
-    cells = build_matrix(args.sigma, args.reference, args.spill, args.boundary)
+    # Preserve user order but drop duplicates.
+    networks: list[str] = []
+    for n in args.network:
+        if n not in networks:
+            networks.append(n)
+
+    cells = build_matrix(args.sigma, args.reference, networks)
     total = len(cells)
     if args.start_from > total:
         print(
@@ -329,33 +322,52 @@ def main() -> int:
         f"sigma={args.sigma} kappa={args.kappa} reference={args.reference} "
         f"coverage={args.coverage} runs={args.runs}"
     )
-    print(f"spill={args.spill} boundary={args.boundary}")
-    print(f"design_tag={args.design_tag} network_tag={args.network_tag}")
+    print("spill=off boundary=on")
+    print(f"design_tag={args.design_tag} network={networks}")
     print(f"cells={total}")
     for idx, cell in enumerate(cells, start=1):
         mark = " " if idx >= args.start_from else "skip"
         print(f"{idx:02d}. [{mark}] {cell.label(args.kappa, args.coverage)}")
     print("=" * 80)
 
-    rc_net = setup_network(
-        args.network_tag, workdir, args.dry_run, args.skip_network_setup
-    )
-    if rc_net != 0:
-        print(f"Network setup failed (exit {rc_net}).")
-        return rc_net
-
     failed = 0
     ran = 0
+    active_network: str | None = None
     for idx, cell in enumerate(cells, start=1):
         if idx < args.start_from:
             continue
+
+        if cell.network != active_network:
+            rc_net = setup_network(
+                cell.network,
+                workdir,
+                args.dry_run,
+                args.skip_network_setup,
+            )
+            if rc_net != 0:
+                failed += 1
+                print(
+                    f"Network setup for {cell.network} failed "
+                    f"(exit {rc_net})."
+                )
+                if not args.continue_on_error:
+                    print(
+                        "Stopping due to failure "
+                        "(use --continue-on-error to keep going)."
+                    )
+                    return rc_net
+            active_network = cell.network
+
         ran += 1
-        cmd = build_cmd(cell, args)
+        cmd = build_remote_cmd(cell, args)
         rc = run_one(cmd, idx, total, workdir, args.dry_run)
         if rc != 0:
             failed += 1
             if not args.continue_on_error:
-                print("Stopping due to failure (use --continue-on-error to keep going).")
+                print(
+                    "Stopping due to failure "
+                    "(use --continue-on-error to keep going)."
+                )
                 return rc
 
     print()

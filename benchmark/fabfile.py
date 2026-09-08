@@ -275,7 +275,7 @@ def cloudlab_network(ctx, mode='lan', settings_file='cloudlab_settings.json'):
 def cloudlab_remote(
     ctx,
     debug=False,
-    sigma=1,
+    sigma=5,
     kappa=2,
     reference=4,
     coverage=7,
@@ -300,12 +300,12 @@ def cloudlab_remote(
     enable_adaptive_intermediate_spill=True, # payload shceduling
     adaptive_intermediate_spill_trigger_digests=2,
     adaptive_intermediate_spill_cap_digests=1,
-    enable_intermediate_wave_boundary=False,
+    enable_intermediate_wave_boundary=True,
 
     design_tag='experiment2_attack_final',
     network_tag='geo',
     load_tag='balanced_50_500000_50',
-    runs=1,
+    runs=3,
 ):
     ''' Run benchmarks on CloudLab '''
     allow_cross_step_weak_edges = _coerce_bool(allow_cross_step_weak_edges)
@@ -369,6 +369,9 @@ def cloudlab_remote(
         # 's': 0.99,
     }
     try:
+        # Preflight: kill leftovers on all CloudLab nodes before the first boot.
+        Print.info('Preflight force-clean on all CloudLab nodes...')
+        CloudLabBench(ctx).kill_and_ensure_clean(delete_logs=True, retries=10, settle_secs=1.5)
         CloudLabBench(ctx).run(bench_params, node_params, debug)
     except BenchError as e:
         Print.error(e)
